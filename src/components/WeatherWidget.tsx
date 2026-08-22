@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Cloud, Sun, Moon, CloudRain, CloudSnow, CloudLightning, 
   MapPin, Loader2, Compass, Search, X, Clock, AlertCircle
 } from "lucide-react";
-import { WeatherInfo } from "../types";
+import { WeatherInfo, ForecastHour } from "../types";
 
-// Standardisierte Wetter-Voreinstellungen für deutsche Großstädte
+// Standardisierte Wetter-Voreinstellungen für deutsche Großstädte als robuster Initial-State
 const PRESET_WEATHER: Record<string, WeatherInfo> = {
   "Berlin": {
     city: "Berlin",
@@ -55,22 +55,120 @@ const PRESET_WEATHER: Record<string, WeatherInfo> = {
       { time: "15:00", temp: 23, condition: "Sonnig", icon: "sun" },
     ]
   },
-  "Köln": {
-    city: "Köln",
-    temp: 20,
-    condition: "Bewölkt",
-    icon: "cloud",
+  "Potsdam": {
+    city: "Potsdam",
+    temp: 21,
+    condition: "Sonnig",
+    icon: "sun",
     forecast: [
-      { time: "12:00", temp: 19, condition: "Bewölkt", icon: "cloud" },
-      { time: "13:00", temp: 20, condition: "Bewölkt", icon: "cloud" },
-      { time: "14:00", temp: 21, condition: "Leicht bewölkt", icon: "cloud" },
-      { time: "15:00", temp: 20, condition: "Gewittrig", icon: "lightning" },
+      { time: "12:00", temp: 21, condition: "Sonnig", icon: "sun" },
+      { time: "13:00", temp: 22, condition: "Sonnig", icon: "sun" },
+      { time: "14:00", temp: 23, condition: "Leicht bewölkt", icon: "cloud" },
+      { time: "15:00", temp: 22, condition: "Heiter", icon: "cloud" },
     ]
   }
 };
 
+/**
+ * Wandelt WMO Weather Codes (0-99) in deutsche Wetterbeschreibungen und Icon-Kennungen um
+ */
+function parseWmoWeather(code: number, isDay: number = 1): { condition: string; icon: string } {
+  let condition = "Sonnig";
+  let icon = isDay ? "sun" : "moon";
+
+  switch (code) {
+    case 0:
+      condition = isDay ? "Sonnig / Klar" : "Klar";
+      icon = isDay ? "sun" : "moon";
+      break;
+    case 1:
+      condition = isDay ? "Meist sonnig" : "Klar";
+      icon = isDay ? "sun" : "moon";
+      break;
+    case 2:
+      condition = "Leicht bewölkt";
+      icon = "cloud";
+      break;
+    case 3:
+      condition = "Bedeckt";
+      icon = "cloud";
+      break;
+    case 45:
+    case 48:
+      condition = "Nebel";
+      icon = "cloud";
+      break;
+    case 51:
+    case 53:
+    case 55:
+      condition = "Sprühregen";
+      icon = "rain";
+      break;
+    case 56:
+    case 57:
+      condition = "Gefrierender Sprühregen";
+      icon = "snow";
+      break;
+    case 61:
+      condition = "Leichter Regen";
+      icon = "rain";
+      break;
+    case 63:
+      condition = "Mäßiger Regen";
+      icon = "rain";
+      break;
+    case 65:
+      condition = "Starker Regen";
+      icon = "rain";
+      break;
+    case 66:
+    case 67:
+      condition = "Gefrierender Regen";
+      icon = "snow";
+      break;
+    case 71:
+    case 73:
+    case 75:
+    case 77:
+      condition = "Schneefall";
+      icon = "snow";
+      break;
+    case 80:
+      condition = "Leichte Regenschauer";
+      icon = "rain";
+      break;
+    case 81:
+      condition = "Regenschauer";
+      icon = "rain";
+      break;
+    case 82:
+      condition = "Starke Regenschauer";
+      icon = "rain";
+      break;
+    case 85:
+    case 86:
+      condition = "Schneeschauer";
+      icon = "snow";
+      break;
+    case 95:
+      condition = "Gewitter";
+      icon = "lightning";
+      break;
+    case 96:
+    case 99:
+      condition = "Gewitter mit Hagel";
+      icon = "lightning";
+      break;
+    default:
+      condition = "Heiter";
+      icon = "cloud";
+      break;
+  }
+  return { condition, icon };
+}
+
 export default function WeatherWidget() {
-  const [activeCity, setActiveCity] = useState(() => {
+  const [activeCity, setActiveCity] = useState<string>(() => {
     return localStorage.getItem("news_weather_city") || "Berlin";
   });
   const [weather, setWeather] = useState<WeatherInfo>(() => {
@@ -81,46 +179,146 @@ export default function WeatherWidget() {
   const [error, setError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
 
-  const fetchWeather = async (cityParam?: string, lat?: number, lon?: number) => {
+  /**
+   * Direkt-Abruf über Open-Meteo Client-Side API
+   */
+  const fetchWeather = useCallback(async (cityParam?: string, latParam?: number, lonParam?: number) => {
     setLoading(true);
     setError(null);
+
     try {
-      let url = "/api/weather";
-      const targetCity = cityParam !== undefined ? cityParam : activeCity;
-      if (lat !== undefined && lon !== undefined) {
-        url += `?lat=${lat}&lon=${lon}`;
+      let lat = latParam;
+      let lon = lonParam;
+      let resolvedCityName = cityParam || activeCity;
+
+      // 1. Falls Stadtname angegeben oder gesucht: Geocoding via Open-Meteo Geocoding API
+      if (lat === undefined || lon === undefined) {
+        const queryName = (cityParam || activeCity).trim();
+        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(queryName)}&count=1&language=de&format=json`;
+        
+        const geoRes = await fetch(geoUrl);
+        if (!geoRes.ok) {
+          throw new Error(`Geocoding-Dienst nicht erreichbar (${geoRes.status})`);
+        }
+        
+        const geoData = await geoRes.json();
+        if (!geoData.results || geoData.results.length === 0) {
+          setError(`Ort "${queryName}" nicht gefunden.`);
+          setLoading(false);
+          return;
+        }
+
+        const topResult = geoData.results[0];
+        lat = topResult.latitude;
+        lon = topResult.longitude;
+        resolvedCityName = topResult.name;
       } else {
-        url += `?city=${encodeURIComponent(targetCity)}`;
+        // Reverse Geocoding für GPS-Koordinaten (Fallback-Name)
+        try {
+          const revRes = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, {
+            headers: { "User-Agent": "AeroNewsApp/1.0" }
+          });
+          if (revRes.ok) {
+            const revData = await revRes.json();
+            if (revData && revData.address) {
+              resolvedCityName = revData.address.city || revData.address.town || revData.address.village || revData.address.municipality || `Standort (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
+            }
+          }
+        } catch {
+          resolvedCityName = `Standort (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
+        }
       }
 
-      const res = await fetch(url);
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const errorMsg = errData.error || `Ort "${targetCity}" nicht gefunden.`;
-        setError(errorMsg);
-        return;
+      // 2. Wetterdaten direkt von Open-Meteo Forecast API abrufen
+      const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=2`;
+      
+      const wRes = await fetch(weatherUrl);
+      if (!wRes.ok) {
+        throw new Error(`Open-Meteo Wetterdaten nicht erreichbar (${wRes.status})`);
       }
-      const data: WeatherInfo = await res.json();
-      setWeather(data);
-      if (data.city) {
-        setActiveCity(data.city);
-        localStorage.setItem("news_weather_city", data.city);
-        setSearchInput("");
+
+      const wData = await wRes.json();
+      const current = wData.current;
+      const hourly = wData.hourly;
+
+      if (!current) {
+        throw new Error("Keine aktuellen Wetterdaten in der Antwort vorhanden.");
       }
-      if (data.apiKeyMissing) {
-        setError("API-Key fehlt (Demo-Modus)");
-      } else if (data.apiError) {
-        setError("API-Fehler (Demo-Modus)");
+
+      const isDay = typeof current.is_day === "number" ? current.is_day : 1;
+      const { condition, icon } = parseWmoWeather(current.weather_code, isDay);
+      const roundedTemp = Math.round(current.temperature_2m);
+
+      // 3. Stündliche 4-Stunden-Vorhersage berechnen
+      const forecast: ForecastHour[] = [];
+      if (hourly && Array.isArray(hourly.time)) {
+        const currentTimeISO = current.time || "";
+        const currentHourPrefix = currentTimeISO.slice(0, 13);
+        let currentIdx = hourly.time.findIndex((t: string) => t.startsWith(currentHourPrefix));
+        if (currentIdx === -1) currentIdx = 0;
+
+        for (let i = 1; i <= 4; i++) {
+          const targetIdx = currentIdx + i;
+          if (targetIdx < hourly.time.length) {
+            const timeStr = hourly.time[targetIdx].slice(11, 16);
+            const hourTemp = Math.round(hourly.temperature_2m[targetIdx]);
+            const hourCode = hourly.weather_code[targetIdx];
+            const hourIsDay = (hourly.is_day && typeof hourly.is_day[targetIdx] === "number") ? hourly.is_day[targetIdx] : 1;
+            const hourWeather = parseWmoWeather(hourCode, hourIsDay);
+
+            forecast.push({
+              time: timeStr,
+              temp: hourTemp,
+              condition: hourWeather.condition,
+              icon: hourWeather.icon
+            });
+          }
+        }
       }
+
+      // 4. Exakte Ortszeit berechnen
+      let localTimeStr = "";
+      let utcOffsetStr = "";
+      if (wData.timezone) {
+        try {
+          const now = new Date();
+          localTimeStr = now.toLocaleTimeString("de-DE", {
+            timeZone: wData.timezone,
+            hour: "2-digit",
+            minute: "2-digit"
+          });
+          const offsetHours = (wData.utc_offset_seconds || 0) / 3600;
+          utcOffsetStr = offsetHours >= 0 ? `UTC+${offsetHours}` : `UTC${offsetHours}`;
+        } catch {
+          // Fallback
+        }
+      }
+
+      const weatherResult: WeatherInfo = {
+        city: resolvedCityName,
+        temp: roundedTemp,
+        condition,
+        icon,
+        forecast,
+        localTime: localTimeStr,
+        timezone: wData.timezone,
+        utcOffset: utcOffsetStr,
+        isDay: isDay === 1
+      };
+
+      setWeather(weatherResult);
+      setActiveCity(resolvedCityName);
+      localStorage.setItem("news_weather_city", resolvedCityName);
+      setSearchInput("");
     } catch (err: any) {
-      console.error("Fehler beim Laden des Wetters:", err);
-      setError("Verbindung fehlgeschlagen");
+      console.error("Open-Meteo Fehler:", err);
+      setError("Wetterdienst nicht erreichbar");
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeCity]);
 
-  // Standorterkennung
+  // Standorterkennung via Browser-Geolocation
   const detectLocation = () => {
     setLoading(true);
     setError(null);
@@ -217,14 +415,6 @@ export default function WeatherWidget() {
             <span className="font-semibold text-white">{weather.temp}°C</span>
             <span>•</span>
             <span>{weather.condition}</span>
-            {(weather.apiKeyMissing || weather.apiError) && (
-              <>
-                <span>•</span>
-                <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-md font-mono font-medium tracking-wider" title="Wetterdienst im Fallback-Modus">
-                  DEMO-MODUS
-                </span>
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -316,3 +506,4 @@ export default function WeatherWidget() {
     </div>
   );
 }
+
