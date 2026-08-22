@@ -1,0 +1,6 @@
+{
+  "name": "skimm",
+  "description": "A modern, responsive news application with personalized topics, custom sources, weather forecast, and a clean minimalist aesthetic.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
