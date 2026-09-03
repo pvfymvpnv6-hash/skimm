@@ -69,49 +69,6 @@ function isAuthorOrLogoUrl(url?: string): boolean {
   );
 }
 
-// Curated high-resolution fallback pictures per category
-const CATEGORY_FALLBACK_IMAGES: Record<string, string[]> = {
-  technologie: [
-    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80"
-  ],
-  politik: [
-    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"
-  ],
-  wirtschaft: [
-    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80"
-  ],
-  wissen: [
-    "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80"
-  ],
-  "kultur & gesellschaft": [
-    "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1460661419201-fd4cecdf8a8b?auto=format&fit=crop&w=1200&q=80"
-  ],
-  blaulicht: [
-    "https://images.unsplash.com/photo-1582139329536-e7284fece509?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80"
-  ]
-};
-
-function getCategoryFallbackImage(category: string, id: string): string {
-  const cat = (category || "").toLowerCase().trim();
-  const list = CATEGORY_FALLBACK_IMAGES[cat] || CATEGORY_FALLBACK_IMAGES["politik"];
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = id.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const idx = Math.abs(hash) % list.length;
-  return list[idx];
-}
 
 export default function ArticleCard({
   article: rawArticle,
@@ -259,14 +216,12 @@ export default function ArticleCard({
 
   const categoryLabel = article.category;
   
-  // Determine active image URL cleanly with high quality category fallback if missing or failed
+  // Determine active image URL cleanly using authentic publisher images
   let candidateUrl = "";
   if (!primaryImgFailed && article.imageUrl && !isAuthorOrLogoUrl(article.imageUrl)) {
     candidateUrl = article.imageUrl;
   } else if (scrapedImg && !isAuthorOrLogoUrl(scrapedImg)) {
     candidateUrl = scrapedImg;
-  } else {
-    candidateUrl = getCategoryFallbackImage(article.category, article.id);
   }
 
   const activeImageUrl = candidateUrl;
