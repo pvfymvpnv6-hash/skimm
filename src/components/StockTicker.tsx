@@ -31,9 +31,13 @@ const ALL_AVAILABLE_STOCKS: StockPreset[] = [
   { symbol: "RHM.DE", name: "Rheinmetall AG", cat: "Industrie (DE)", tab: "top" },
 
   // Indizes
-  { symbol: "^GDAXI", name: "DAX 40 Performance", cat: "Index (DE)", tab: "indizes" },
+  { symbol: "^GDAXI", name: "DAX 40", cat: "Index (DE)", tab: "indizes" },
+  { symbol: "^MDAXI", name: "MDAX", cat: "Index (DE)", tab: "indizes" },
   { symbol: "^GSPC", name: "S&P 500", cat: "Index (US)", tab: "indizes" },
-  { symbol: "^IXIC", name: "NASDAQ Composite", cat: "Tech (US)", tab: "indizes" },
+  { symbol: "^IXIC", name: "NASDAQ 100", cat: "Tech (US)", tab: "indizes" },
+  { symbol: "^STOXX50E", name: "EURO STOXX 50", cat: "Index (EU)", tab: "indizes" },
+  { symbol: "^DJI", name: "Dow Jones", cat: "Index (US)", tab: "indizes" },
+  { symbol: "^N225", name: "Nikkei 225", cat: "Index (JP)", tab: "indizes" },
 
   // Krypto
   { symbol: "BTC-USD", name: "Bitcoin", cat: "Krypto (L1)", tab: "krypto" },
@@ -43,7 +47,7 @@ const ALL_AVAILABLE_STOCKS: StockPreset[] = [
 
 const DEFAULT_PRESETS: Record<MarketTab, string[]> = {
   top: ["NVDA", "AAPL", "MSFT", "AMZN", "SAP"],
-  indizes: ["^GDAXI", "^GSPC", "^IXIC", "RHM.DE", "SAP"],
+  indizes: ["^GDAXI", "^MDAXI", "^GSPC", "^IXIC", "^STOXX50E"],
   krypto: ["BTC-USD", "ETH-USD", "SOL-USD", "NVDA", "AAPL"],
 };
 
