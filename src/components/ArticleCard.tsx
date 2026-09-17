@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Clock, Bookmark, MapPin, TrendingUp, TrendingDown, Minus, X } from "lucide-react";
 import { Article } from "../types";
 import { enrichArticle } from "../utils/articleEnricher";
@@ -70,7 +70,7 @@ function isAuthorOrLogoUrl(url?: string): boolean {
 }
 
 
-export default function ArticleCard({
+function ArticleCard({
   article: rawArticle,
   onSelect,
   isSaved,
@@ -80,7 +80,8 @@ export default function ArticleCard({
   readingDepth = "standard",
   className = "",
 }: ArticleCardProps) {
-  const article = enrichArticle(rawArticle);
+  // Memoize article enrichment (keyword scanning & summary bullet generation) so it isn't recomputed on every render
+  const article = useMemo(() => enrichArticle(rawArticle), [rawArticle]);
   const [primaryImgFailed, setPrimaryImgFailed] = useState(false);
   const [scrapedImg, setScrapedImg] = useState<string | null>(null);
   const [isScraping, setIsScraping] = useState(false);
@@ -518,3 +519,6 @@ export default function ArticleCard({
     </article>
   );
 }
+
+// ⚡ Bolt: Memoize ArticleCard to avoid re-rendering 24+ cards on every 1-second clock tick in App.tsx
+export default React.memo(ArticleCard);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { 
   Newspaper, Search, SlidersHorizontal, Sun, Moon, Bookmark, 
   Sparkles, X, ChevronRight, ChevronDown, ChevronUp, ArrowUp, Sliders, EyeOff, Layers, Radio, Globe,
@@ -109,7 +109,7 @@ export default function App() {
     return [];
   });
 
-  const handleDismissArticle = (e: React.MouseEvent, articleId: string) => {
+  const handleDismissArticle = useCallback((e: React.MouseEvent, articleId: string) => {
     e.stopPropagation();
     setDismissedStreamArticleIds((prev) => {
       if (prev.includes(articleId)) return prev;
@@ -117,7 +117,7 @@ export default function App() {
       localStorage.setItem("news_dismissed_stream_articles", JSON.stringify(updated));
       return updated;
     });
-  };
+  }, []);
 
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem("news_dark_mode");
@@ -872,21 +872,31 @@ function isSportArticleClient(art: Article): boolean {
   }, [selectedCategory, searchQuery]);
 
   // --- Article Saved Handlers ---
-  const handleToggleSave = (articleId: string) => {
-    const isSaved = savedArticleIds.includes(articleId);
-    if (isSaved) {
-      setSavedArticleIds((prev) => prev.filter((savedId) => savedId !== articleId));
-      setSavedArticlesStore((prev) => prev.filter((art) => art.id !== articleId));
-    } else {
-      const targetArticle = dynamicArticles.find((art) => art.id === articleId);
-      if (targetArticle) {
-        setSavedArticleIds((prev) => [...prev, articleId]);
-        setSavedArticlesStore((prev) => [...prev, targetArticle]);
+  const handleToggleSave = useCallback((articleId: string) => {
+    setSavedArticleIds((prevSavedIds) => {
+      const isSaved = prevSavedIds.includes(articleId);
+      if (isSaved) {
+        return prevSavedIds.filter((savedId) => savedId !== articleId);
+      } else {
+        return [...prevSavedIds, articleId];
       }
-    }
-  };
+    });
 
-  const handleSelectArticle = (article: Article) => {
+    setSavedArticlesStore((prevStore) => {
+      const isSaved = prevStore.some((art) => art.id === articleId);
+      if (isSaved) {
+        return prevStore.filter((art) => art.id !== articleId);
+      } else {
+        const targetArticle = dynamicArticles.find((art) => art.id === articleId);
+        if (targetArticle) {
+          return [...prevStore, targetArticle];
+        }
+        return prevStore;
+      }
+    });
+  }, [dynamicArticles]);
+
+  const handleSelectArticle = useCallback((article: Article) => {
     const artId = article.id;
     const artUrl = article.url ? article.url.toLowerCase().trim() : "";
     const artTitle = article.title ? article.title.toLowerCase().trim() : "";
@@ -912,16 +922,18 @@ function isSportArticleClient(art: Article): boolean {
       return updated;
     });
 
-    if (activeAlert) {
-      const actUrl = activeAlert.url ? activeAlert.url.toLowerCase().trim() : "";
-      const actTitle = activeAlert.title ? activeAlert.title.toLowerCase().trim() : "";
-      if (activeAlert.id === artId || (actUrl && artUrl && actUrl === artUrl) || (actTitle && artTitle && actTitle === artTitle)) {
-        setActiveAlert(null);
+    setActiveAlert((prevAlert) => {
+      if (!prevAlert) return null;
+      const actUrl = prevAlert.url ? prevAlert.url.toLowerCase().trim() : "";
+      const actTitle = prevAlert.title ? prevAlert.title.toLowerCase().trim() : "";
+      if (prevAlert.id === artId || (actUrl && artUrl && actUrl === artUrl) || (actTitle && artTitle && actTitle === artTitle)) {
+        return null;
       }
-    }
+      return prevAlert;
+    });
 
     setSelectedArticle(article);
-  };
+  }, []);
 
   const handleIgnoreAlert = (articleId: string) => {
     const target = (activeAlert && activeAlert.id === articleId) ? activeAlert : articles.find(a => a.id === articleId) || activeAlert;
