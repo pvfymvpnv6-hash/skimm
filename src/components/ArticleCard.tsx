@@ -21,6 +21,19 @@ interface ArticleCardProps {
 function isAuthorOrLogoUrl(url?: string): boolean {
   if (!url || typeof url !== "string") return true;
   const lower = url.toLowerCase();
+
+  // Reject audio/video files
+  if (
+    lower.endsWith(".mp4") ||
+    lower.endsWith(".webm") ||
+    lower.endsWith(".mov") ||
+    lower.endsWith(".mp3") ||
+    lower.includes(".mp4?") ||
+    lower.includes(".webm?")
+  ) {
+    return true;
+  }
+
   return (
     lower.includes("gravatar") ||
     lower.includes("vgwort") ||
@@ -33,23 +46,16 @@ function isAuthorOrLogoUrl(url?: string): boolean {
     lower.includes("sponsor") ||
     lower.includes("werbebanner") ||
     lower.includes("faz-quarterly") ||
-    lower.includes("eine-hochzeit-kann-ein-guter") ||
     lower.includes("magazin-cover") ||
     lower.includes("magazin_cover") ||
     lower.includes("heft-cover") ||
     lower.includes("abo-aktion") ||
     lower.includes("abo_aktion") ||
-    lower.includes("zukunftsmagazin") ||
-    lower.includes("unsplash.com") ||
     lower.includes("add_bevorzugte_quelle") ||
     lower.includes("google_banner") ||
     lower.includes("bevorzugte_quelle") ||
     lower.includes("site-logo") ||
     lower.includes("site_logo") ||
-    lower.includes("site-header") ||
-    lower.includes("site_header") ||
-    lower.includes("header-bg") ||
-    lower.includes("header_bg") ||
     lower.includes("default-og") ||
     lower.includes("default_og") ||
     lower.includes("default-image") ||
@@ -59,9 +65,10 @@ function isAuthorOrLogoUrl(url?: string): boolean {
     lower.includes("placeholder") ||
     /\/avatars?\//.test(lower) ||
     /\/users?\//.test(lower) ||
-    /\b(32x32|48x48|50x50|64x64|80x80|96x96|100x100)\b/.test(lower)
+    /\b(16x16|32x32|48x48|50x50|64x64|80x80|96x96|100x100)\b/.test(lower)
   );
 }
+
 
 export default function ArticleCard({
   article: rawArticle,
@@ -209,7 +216,7 @@ export default function ArticleCard({
 
   const categoryLabel = article.category;
   
-  // Determine active image URL cleanly - ONLY REAL PUBLISHER IMAGES (Never fake stock/Unsplash photos)
+  // Determine active image URL cleanly using authentic publisher images
   let candidateUrl = "";
   if (!primaryImgFailed && article.imageUrl && !isAuthorOrLogoUrl(article.imageUrl)) {
     candidateUrl = article.imageUrl;
@@ -217,7 +224,7 @@ export default function ArticleCard({
     candidateUrl = scrapedImg;
   }
 
-  const activeImageUrl = (candidateUrl && !isAuthorOrLogoUrl(candidateUrl)) ? candidateUrl : "";
+  const activeImageUrl = candidateUrl;
   const hasValidImage = Boolean(activeImageUrl);
   const bullets = article.summaryBullets || [];
 

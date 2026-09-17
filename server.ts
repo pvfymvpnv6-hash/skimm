@@ -313,6 +313,24 @@ function upgradeImageUrl(rawUrl: string): string {
   return url;
 }
 
+function isValidMediaUrl(url: string): boolean {
+  if (!url || typeof url !== "string") return false;
+  const lower = url.toLowerCase().trim();
+  if (
+    lower.endsWith(".mp4") ||
+    lower.endsWith(".webm") ||
+    lower.endsWith(".mov") ||
+    lower.endsWith(".mp3") ||
+    lower.endsWith(".m4a") ||
+    lower.includes("/video/") ||
+    lower.includes(".mp4?") ||
+    lower.includes(".webm?")
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function extractImage(item: any): string {
   const mediaCandidates: string[] = [];
 
@@ -335,18 +353,20 @@ function extractImage(item: any): string {
   collect(item.image);
 
   for (let candidate of mediaCandidates) {
-    if (!candidate) continue;
+    if (!candidate || !isValidMediaUrl(candidate)) continue;
     candidate = upgradeImageUrl(candidate);
-    if (candidate) return candidate;
+    if (candidate && isValidMediaUrl(candidate)) return candidate;
   }
 
   // Check inline HTML images
   const html = item.contentEncoded || item["content:encoded"] || item.content || item.description || "";
   if (html) {
-    const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-    if (match && match[1]) {
-      const src = upgradeImageUrl(match[1]);
-      if (src) return src;
+    const matches = html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi);
+    for (const match of matches) {
+      if (match && match[1] && isValidMediaUrl(match[1])) {
+        const src = upgradeImageUrl(match[1]);
+        if (src && isValidMediaUrl(src)) return src;
+      }
     }
   }
 
@@ -476,18 +496,16 @@ app.get("/api/news", async (req: Request, res: Response) => {
           };
         });
 
-        // Eagerly resolve missing images for feeds without RSS enclosures (like rbb24) for the first 8 items
-        if (feedConfig.id === "rbb24" || parsedArticles.some(a => !a.imageUrl)) {
-          const scrapePromises = parsedArticles.slice(0, 8).map(async (art) => {
-            if (!art.imageUrl && art.url && art.url.startsWith("http")) {
-              const scrapedImg = await fetchOgImage(art.url);
-              if (scrapedImg) {
-                art.imageUrl = scrapedImg;
-              }
+        // Eagerly resolve missing images for all articles without RSS enclosures
+        const scrapePromises = parsedArticles.map(async (art) => {
+          if (!art.imageUrl && art.url && art.url.startsWith("http")) {
+            const scrapedImg = await fetchOgImage(art.url);
+            if (scrapedImg) {
+              art.imageUrl = scrapedImg;
             }
-          });
-          await Promise.allSettled(scrapePromises);
-        }
+          }
+        });
+        await Promise.allSettled(scrapePromises);
 
         return parsedArticles;
       } catch (e) {
@@ -979,59 +997,127 @@ app.get("/api/traffic", (req: Request, res: Response) => {
 // 5. API: Stock Quotes & Sparklines (`/api/stocks`)
 // ----------------------------------------------------
 const stockCache = new Map<string, { data: any; timestamp: number }>();
+const STOCK_CACHE_TTL = 30 * 1000; // 30 seconds cache
 
-const STOCK_BASE_PRICES: Record<string, { name: string; price: number; currency: string }> = {
-  "^GDAXI": { name: "DAX 40", price: 23150.40, currency: "EUR" },
-  "^MDAXI": { name: "MDAX", price: 28420.10, currency: "EUR" },
-  "^GSPC": { name: "S&P 500", price: 5880.20, currency: "USD" },
-  "^IXIC": { name: "Nasdaq 100", price: 21100.50, currency: "USD" },
-  "SAP": { name: "SAP SE", price: 242.80, currency: "EUR" },
-  "SIE.DE": { name: "Siemens AG", price: 212.50, currency: "EUR" },
-  "NVDA": { name: "NVIDIA Corp.", price: 138.40, currency: "USD" },
-  "AAPL": { name: "Apple Inc.", price: 234.90, currency: "USD" },
-  "MSFT": { name: "Microsoft", price: 428.10, currency: "USD" },
-  "BTC-USD": { name: "Bitcoin", price: 94800.00, currency: "USD" },
-  "ETH-USD": { name: "Ethereum", price: 3420.50, currency: "USD" },
-  "SOL-USD": { name: "Solana", price: 198.20, currency: "USD" }
+const WELL_KNOWN_NAMES: Record<string, string> = {
+  "^GDAXI": "DAX 40",
+  "^MDAXI": "MDAX",
+  "^GSPC": "S&P 500",
+  "^IXIC": "NASDAQ 100",
+  "^STOXX50E": "EURO STOXX 50",
+  "^DJI": "Dow Jones",
+  "^N225": "Nikkei 225",
+  "^FTSE": "FTSE 100",
+  "SAP": "SAP SE",
+  "SIE.DE": "Siemens AG",
+  "RHM.DE": "Rheinmetall AG",
+  "NVDA": "NVIDIA Corp.",
+  "AAPL": "Apple Inc.",
+  "MSFT": "Microsoft Corp.",
+  "AMZN": "Amazon.com Inc.",
+  "GOOG": "Alphabet Inc.",
+  "META": "Meta Platforms",
+  "TSLA": "Tesla Inc.",
+  "BTC-USD": "Bitcoin",
+  "ETH-USD": "Ethereum",
+  "SOL-USD": "Solana"
 };
+
+function cleanStockName(sym: string, rawName: string): string {
+  if (WELL_KNOWN_NAMES[sym]) return WELL_KNOWN_NAMES[sym];
+  if (!rawName) return sym;
+  let clean = rawName
+    .replace(/\s+/g, " ")
+    .replace(/\s+P$/, "")
+    .replace(/\s+I$/, "")
+    .replace(/Performance-Index/i, "")
+    .replace(/\bSE\b/i, "SE")
+    .replace(/\bAG\b/i, "AG")
+    .trim();
+  return clean || sym;
+}
+
+async function fetchYahooQuote(symbol: string): Promise<any> {
+  const cached = stockCache.get(symbol);
+  if (cached && (Date.now() - cached.timestamp < STOCK_CACHE_TTL)) {
+    return cached.data;
+  }
+
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=15m&range=1d`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+      }
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const result = json.chart?.result?.[0];
+    if (!result || !result.meta) throw new Error("Invalid Yahoo structure");
+
+    const meta = result.meta;
+    const price = meta.regularMarketPrice ?? meta.chartPreviousClose ?? 100;
+    const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
+    const change = price - prevClose;
+    const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+
+    const rawQuotes: number[] = (result.indicators?.quote?.[0]?.close || []).filter((p: any) => typeof p === "number" && !isNaN(p));
+    let sparkline: number[] = [];
+    if (rawQuotes.length >= 2) {
+      // Downsample to max 12-15 points
+      const step = Math.max(1, Math.floor(rawQuotes.length / 12));
+      for (let i = 0; i < rawQuotes.length; i += step) {
+        sparkline.push(Number(rawQuotes[i].toFixed(2)));
+      }
+      sparkline[sparkline.length - 1] = Number(price.toFixed(2));
+    } else {
+      sparkline = [Number(prevClose.toFixed(2)), Number(price.toFixed(2))];
+    }
+
+    const payload = {
+      symbol,
+      name: cleanStockName(symbol, meta.shortName || meta.longName || symbol),
+      price: Number(price.toFixed(2)),
+      changePercent: Number(changePercent.toFixed(2)),
+      currency: meta.currency || "USD",
+      sparkline,
+      dayHigh: meta.regularMarketDayHigh ? Number(meta.regularMarketDayHigh.toFixed(2)) : Number((price * 1.01).toFixed(2)),
+      dayLow: meta.regularMarketDayLow ? Number(meta.regularMarketDayLow.toFixed(2)) : Number((price * 0.99).toFixed(2)),
+      prevClose: Number(prevClose.toFixed(2)),
+      fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh ? Number(meta.fiftyTwoWeekHigh.toFixed(2)) : undefined,
+      fiftyTwoWeekLow: meta.fiftyTwoWeekLow ? Number(meta.fiftyTwoWeekLow.toFixed(2)) : undefined,
+      volume: meta.regularMarketVolume || undefined
+    };
+
+    stockCache.set(symbol, { data: payload, timestamp: Date.now() });
+    return payload;
+  } catch (err) {
+    // Fallback simulation if network error
+    const basePrice = 100.0;
+    const seed = Math.sin(Date.now() / 15000 + symbol.charCodeAt(0));
+    const currentPrice = Number((basePrice * (1 + seed * 0.005)).toFixed(2));
+    return {
+      symbol,
+      name: WELL_KNOWN_NAMES[symbol] || symbol,
+      price: currentPrice,
+      changePercent: Number((seed * 0.5).toFixed(2)),
+      currency: symbol.endsWith(".DE") || symbol.includes("DAX") || symbol.includes("STOXX") ? "EUR" : "USD",
+      sparkline: [basePrice * 0.99, currentPrice],
+      dayHigh: Number((currentPrice * 1.01).toFixed(2)),
+      dayLow: Number((currentPrice * 0.99).toFixed(2)),
+      prevClose: basePrice
+    };
+  }
+}
 
 app.get("/api/stocks", async (req: Request, res: Response) => {
   const symbolsParam = (req.query.symbols as string) || "^GDAXI,SAP,NVDA,BTC-USD";
   const symbols = symbolsParam.split(",").map(s => s.trim()).filter(Boolean);
 
-  const results = [];
-
-  for (const sym of symbols) {
-    const base = STOCK_BASE_PRICES[sym] || { name: sym, price: 100.0, currency: "EUR" };
-    
-    // Generate realistic dynamic micro-movements for live feeling
-    const seed = Math.sin(Date.now() / 15000 + sym.charCodeAt(0));
-    const variation = (seed * 0.008) + ((Math.random() - 0.5) * 0.002);
-    const currentPrice = Number((base.price * (1 + variation)).toFixed(2));
-    const changePercent = Number(((currentPrice - base.price) / base.price * 100).toFixed(2));
-
-    // Generate 12-point sparkline
-    const sparkline = [];
-    let running = base.price * 0.992;
-    for (let i = 0; i < 12; i++) {
-      const step = (Math.sin(i * 0.6 + sym.charCodeAt(0)) * 0.004) + ((Math.random() - 0.48) * 0.003);
-      running = running * (1 + step);
-      sparkline.push(Number(running.toFixed(2)));
-    }
-    sparkline[sparkline.length - 1] = currentPrice;
-
-    results.push({
-      symbol: sym,
-      name: base.name,
-      price: currentPrice,
-      changePercent,
-      currency: base.currency,
-      sparkline,
-      dayHigh: Number((currentPrice * 1.012).toFixed(2)),
-      dayLow: Number((currentPrice * 0.988).toFixed(2)),
-      prevClose: base.price
-    });
-  }
+  const fetchPromises = symbols.map(sym => fetchYahooQuote(sym));
+  const results = await Promise.all(fetchPromises);
 
   res.json(results);
 });
