@@ -246,7 +246,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Geheimnisvolle Tiefsee: Expedition entdeckt spektakuläre neue Lebensformen in 4000 Metern Tiefe",
     teaser: "In der absoluten Finsternis des Marianengrabens stießen Meeresbiologen auf unbekannte glühende Organismen, die ganz ohne Sonnenlicht gedeihen.",
     category: "Wissen",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
     readingTime: "5 Min. Lesezeit",
     slug: "tiefsee-expedition-neue-arten-entdeckt",
     content: `
@@ -262,7 +262,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Der Wettlauf um das autonome Fahren: Stehen wir kurz vor dem Durchbruch des Level-5-Standards?",
     teaser: "Selbstfahrende Shuttles erobern die ersten Großstädte, doch die vollständige KI-Steuerung bei widrigen Wetterbedingungen bleibt eine gigantische Herausforderung.",
     category: "Technologie",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&w=1200&q=80",
     readingTime: "4 Min. Lesezeit",
     slug: "autonomes-fahren-level-5-ki-herausforderung",
     content: `
@@ -278,7 +278,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Nachhaltige Investments im Aufwind: Warum grüne Anleihen historische Rekorde brechen",
     teaser: "Immer mehr Anleger lenken ihr Kapital gezielt in ökologische Projekte. Finanzökonomen analysieren, wie stabil der Trend zu 'Green Bonds' langfristig ist.",
     category: "Wirtschaft",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?auto=format&fit=crop&w=1200&q=80",
     readingTime: "5 Min. Lesezeit",
     slug: "green-bonds-nachhaltige-investments-rekord",
     content: `
@@ -294,7 +294,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Die Renaissance des Analogen: Warum die klassische Schallplatte die Streaming-Ära überlebt",
     teaser: "Totgesagte leben länger: Vinyl verzeichnet im Zeitalter digitaler Flatrates ungeahnte Zuwächse. Eine Spurensuche nach der Faszination des Haptischen.",
     category: "Kultur & Gesellschaft",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1539386115456-6218151f1585?auto=format&fit=crop&w=1200&q=80",
     readingTime: "4 Min. Lesezeit",
     slug: "vinyl-schallplatten-renaissance-analoger-sound",
     content: `
@@ -310,7 +310,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Globale Handelsrouten im Umbruch: Wie geopolitische Krisen den Welthandel neu ordnen",
     teaser: "Unternehmen verlagern ihre Produktionsstätten vermehrt näher an ihre Heimatmärkte. Dieses 'Nearshoring' verändert Lieferketten fundamental.",
     category: "Politik",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80",
     readingTime: "5 Min. Lesezeit",
     slug: "weltwirtschaft-lieferketten-nearshoring-geopolitik",
     content: `
@@ -326,7 +326,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Mars-Forschung: Hochauflösende Aufnahmen kartieren antike Wassersysteme auf dem Roten Planeten",
     teaser: "Ein fahrender Forschungsroboter liefert neue Aufnahmen von ausgetrockneten Canyons und Flusstälern. Diese weisen auf eine ehemals lebensfreundliche Umwelt hin.",
     category: "Wissen",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1614728894747-a83421e2b9c9?auto=format&fit=crop&w=1200&q=80",
     readingTime: "3 Min. Lesezeit",
     slug: "mars-rover-wasser-canyons-lebensfreundliche-umwelt",
     content: `
@@ -342,7 +342,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Verschlüsselung der Zukunft: Wie Post-Quanten-Kryptographie die Cybersicherheit retten soll",
     teaser: "Sobald Quantencomputer die nötige Rechenleistung erreichen, knacken sie heutige Verschlüsselungen mühelos. Kryptographen arbeiten an neuen Schutzwänden.",
     category: "Technologie",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80",
     readingTime: "4 Min. Lesezeit",
     slug: "post-quanten-kryptographie-verschluesselung-ki-sicherheit",
     content: `
@@ -358,7 +358,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Kollektives Wohnen: Wie urbane Baugenossenschaften bezahlbaren Wohnraum sichern",
     teaser: "Gemeinschaftliches Eigentum statt hoher Mieten: Innovative genossenschaftliche Wohnprojekte verbinden bezahlbare Mieten mit lebendiger Nachbarschaftspflege.",
     category: "Wirtschaft",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=1200&q=80",
     readingTime: "4 Min. Lesezeit",
     slug: "baugenossenschaften-bezahlbarer-wohnraum-kollektives-wohnen",
     content: `
@@ -374,7 +374,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Urban Gardening im großen Stil: Wie smarte Dachgärten das Mikroklima von Megastädten kühlen",
     teaser: "Grüne Oasen statt heißem Asphalt: Immer mehr Metropolen nutzen ungenutzte Flachdächer für den Gemüseanbau und senken damit die sommerlichen Hitzerekorde.",
     category: "Kultur & Gesellschaft",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1530836369250-ef72a3f5cda8?auto=format&fit=crop&w=1200&q=80",
     readingTime: "3 Min. Lesezeit",
     slug: "urban-gardening-smart-roofs-stadtklima-kuehlung",
     content: `
@@ -390,7 +390,7 @@ export const FALLBACK_ARTICLES_POOL = [
     title: "Kampf um das blaue Gold: Neue internationale Richtlinien zur Sicherung grenzüberschreitender Flüsse",
     teaser: "Wassermangel verschärft globale Konflikte. Experten fordern völkerrechtliche Abkommen für Flusssysteme, um gerechte Verteilungen zu sichern.",
     category: "Politik",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1468421870903-4df1664cf249?auto=format&fit=crop&w=1200&q=80",
     readingTime: "4 Min. Lesezeit",
     slug: "wasserrechte-abkommen-flusssysteme-geopolitik",
     content: `

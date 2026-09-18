@@ -53,7 +53,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "spiegel",
     sourceName: "SPIEGEL Online",
     url: "https://www.spiegel.de/politik/deutschland/",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Heute, 08:30",
     readingTime: "5 Min. Lesezeit",
     isBreaking: true
@@ -75,7 +75,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "zeit",
     sourceName: "ZEIT Online",
     url: "https://www.zeit.de/politik/index",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Heute, 06:15",
     readingTime: "4 Min. Lesezeit",
     isTrending: true
@@ -103,7 +103,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "heise",
     sourceName: "Heise Online",
     url: "https://www.heise.de/thema/Quantencomputer",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Gestern, 14:20",
     readingTime: "4 Min. Lesezeit"
   },
@@ -126,7 +126,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "spiegel",
     sourceName: "SPIEGEL Online",
     url: "https://www.spiegel.de/thema/digitalisierung_in_schulen/",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Heute, 11:05",
     readingTime: "5 Min. Lesezeit"
   },
@@ -153,7 +153,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "handelsblatt",
     sourceName: "Handelsblatt",
     url: "https://www.handelsblatt.com/politik/konjunktur/",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Heute, 09:15",
     readingTime: "6 Min. Lesezeit"
   },
@@ -176,7 +176,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "zeit",
     sourceName: "ZEIT Online",
     url: "https://www.zeit.de/kultur/index",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1539386115456-6218151f1585?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Gestern, 17:45",
     readingTime: "5 Min. Lesezeit"
   },
@@ -203,7 +203,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "golem",
     sourceName: "Golem.de",
     url: "https://www.golem.de/specials/ai-act/",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1677442136019-21780efad99a?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Vor 2 Tagen",
     readingTime: "5 Min. Lesezeit"
   },
@@ -226,7 +226,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "zeit",
     sourceName: "ZEIT Online",
     url: "https://www.zeit.de/wissen/umwelt/index",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Vor 2 Tagen",
     readingTime: "6 Min. Lesezeit"
   },
@@ -249,7 +249,7 @@ export const MOCK_ARTICLES: Article[] = [
     sourceId: "handelsblatt",
     sourceName: "Handelsblatt",
     url: "https://www.handelsblatt.com/technologie/",
-    imageUrl: "",
+    imageUrl: "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?auto=format&fit=crop&w=1200&q=80",
     publishedAt: "Vor 3 Tagen",
     readingTime: "4 Min. Lesezeit"
   }
