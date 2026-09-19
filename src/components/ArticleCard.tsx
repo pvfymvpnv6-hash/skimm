@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Clock, Bookmark, MapPin, TrendingUp, TrendingDown, Minus, X } from "lucide-react";
 import { Article } from "../types";
 import { enrichArticle } from "../utils/articleEnricher";
+import { isLegitimateLocalArticle } from "../utils/localNewsClassifier";
 
 export type BentoVariant = "hero" | "standard" | "wide";
 export type ReadingDepth = "skimm" | "standard" | "deep";
@@ -21,19 +22,6 @@ interface ArticleCardProps {
 function isAuthorOrLogoUrl(url?: string): boolean {
   if (!url || typeof url !== "string") return true;
   const lower = url.toLowerCase();
-
-  // Reject audio/video files
-  if (
-    lower.endsWith(".mp4") ||
-    lower.endsWith(".webm") ||
-    lower.endsWith(".mov") ||
-    lower.endsWith(".mp3") ||
-    lower.includes(".mp4?") ||
-    lower.includes(".webm?")
-  ) {
-    return true;
-  }
-
   return (
     lower.includes("gravatar") ||
     lower.includes("vgwort") ||
@@ -46,16 +34,23 @@ function isAuthorOrLogoUrl(url?: string): boolean {
     lower.includes("sponsor") ||
     lower.includes("werbebanner") ||
     lower.includes("faz-quarterly") ||
+    lower.includes("eine-hochzeit-kann-ein-guter") ||
     lower.includes("magazin-cover") ||
     lower.includes("magazin_cover") ||
     lower.includes("heft-cover") ||
     lower.includes("abo-aktion") ||
     lower.includes("abo_aktion") ||
+    lower.includes("zukunftsmagazin") ||
+    lower.includes("unsplash.com") ||
     lower.includes("add_bevorzugte_quelle") ||
     lower.includes("google_banner") ||
     lower.includes("bevorzugte_quelle") ||
     lower.includes("site-logo") ||
     lower.includes("site_logo") ||
+    lower.includes("site-header") ||
+    lower.includes("site_header") ||
+    lower.includes("header-bg") ||
+    lower.includes("header_bg") ||
     lower.includes("default-og") ||
     lower.includes("default_og") ||
     lower.includes("default-image") ||
@@ -65,10 +60,9 @@ function isAuthorOrLogoUrl(url?: string): boolean {
     lower.includes("placeholder") ||
     /\/avatars?\//.test(lower) ||
     /\/users?\//.test(lower) ||
-    /\b(16x16|32x32|48x48|50x50|64x64|80x80|96x96|100x100)\b/.test(lower)
+    /\b(32x32|48x48|50x50|64x64|80x80|96x96|100x100)\b/.test(lower)
   );
 }
-
 
 export default function ArticleCard({
   article: rawArticle,
@@ -153,54 +147,20 @@ export default function ArticleCard({
     }
   };
 
-  // Local-Pin renderer with unbreakable geopolitical guard
+  // Local-Pin renderer with strict high-precision regional verification
   const renderLocalBadge = () => {
-    // 1. If not marked local, never render
-    if (!article.isLocal) return null;
+    // Check if the article qualifies as genuinely local to Berlin/Brandenburg
+    const isTrulyLocal = isLegitimateLocalArticle({
+      title: article.title,
+      teaser: article.teaser,
+      sourceId: article.sourceId,
+      sourceName: article.sourceName,
+      category: article.category,
+      url: article.url,
+      isLocal: article.isLocal
+    });
 
-    // 2. Strict negative guard: Never render for global/international topics
-    const fullText = `${article.title || ""} ${article.teaser || ""}`.toLowerCase();
-    const isGlobalTopic = 
-      fullText.includes("iran") ||
-      fullText.includes("flugzeugträger") ||
-      fullText.includes("pentagon") ||
-      fullText.includes("nahost") ||
-      fullText.includes("teheran") ||
-      fullText.includes("israel") ||
-      fullText.includes("gaza") ||
-      fullText.includes("hegseth") ||
-      fullText.includes("ukraine") ||
-      fullText.includes("kreml") ||
-      fullText.includes("weißes haus") ||
-      fullText.includes("weisses haus") ||
-      fullText.includes("taiwan") ||
-      fullText.includes("peking");
-
-    if (isGlobalTopic) {
-      return null;
-    }
-
-    // 3. For national business/politics publishers (like Handelsblatt, FAZ, SPIEGEL), only show local pin if title explicitly mentions Berlin/Brandenburg
-    const sourceId = (article.sourceId || "").toLowerCase();
-    const sourceName = (article.sourceName || "").toLowerCase();
-    const isNationalOutlet = 
-      sourceId.includes("handelsblatt") || 
-      sourceName.includes("handelsblatt") ||
-      sourceId.includes("spiegel") ||
-      sourceId.includes("zeit") ||
-      sourceId.includes("faz") ||
-      sourceId.includes("focus");
-
-    if (isNationalOutlet) {
-      const hasExplicitLocalCity = 
-        fullText.includes("berlin") ||
-        fullText.includes("brandenburg") ||
-        fullText.includes("potsdam") ||
-        fullText.includes("cottbus");
-      if (!hasExplicitLocalCity) {
-        return null;
-      }
-    }
+    if (!isTrulyLocal) return null;
 
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-cyan-950/90 text-cyan-300 border border-cyan-500/40 backdrop-blur-md shadow-[0_0_10px_rgba(6,182,212,0.2)]">
@@ -216,7 +176,7 @@ export default function ArticleCard({
 
   const categoryLabel = article.category;
   
-  // Determine active image URL cleanly using authentic publisher images
+  // Determine active image URL cleanly - ONLY REAL PUBLISHER IMAGES (Never fake stock/Unsplash photos)
   let candidateUrl = "";
   if (!primaryImgFailed && article.imageUrl && !isAuthorOrLogoUrl(article.imageUrl)) {
     candidateUrl = article.imageUrl;
@@ -224,7 +184,7 @@ export default function ArticleCard({
     candidateUrl = scrapedImg;
   }
 
-  const activeImageUrl = candidateUrl;
+  const activeImageUrl = (candidateUrl && !isAuthorOrLogoUrl(candidateUrl)) ? candidateUrl : "";
   const hasValidImage = Boolean(activeImageUrl);
   const bullets = article.summaryBullets || [];
 

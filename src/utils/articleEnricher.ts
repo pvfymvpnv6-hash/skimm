@@ -1,47 +1,67 @@
 import { Article } from "../types";
-
-const LOCAL_KEYWORDS = [
-  "berlin", "potsdam", "brandenburg", "cottbus", "bsr", "havel", "spree",
-  "s-bahn", "a10", "a115", "vbb", "schönefeld", "ber", "oder-spree",
-  "dahme", "oberhavel", "teltow", "märkisch", "nuthetal", "babelsberg",
-  "werder", "kleinmachnow", "stahnsdorf", "strausberg", "bernau"
-];
+import { isLegitimateLocalArticle } from "./localNewsClassifier";
 
 const POSITIVE_KEYWORDS = [
   "rekord", "erfolg", "gewinn", "durchbruch", "hoffnung", "innovation",
-  "lösung", "chancen", "investition", "wachstum", "förderung", "plus",
-  "rettung", "vorteil", "rekordhoch", "sieger", "preisverleihung", "aufschwung"
+  "lösung", "chancen", "förderung", "plus", "rettung", "vorteil",
+  "rekordhoch", "sieger", "preisverleihung", "aufschwung", "überraschungserfolg"
 ];
 
 const CRITICAL_KEYWORDS = [
   "krise", "warnung", "streik", "insolvenz", "gefahr", "verlust", "kritik",
   "unfall", "schaden", "stau", "risiko", "rückgang", "stopp", "sorge",
-  "konkurs", "verspätung", "problem", "skandal", "drohung", "kürzung"
+  "konkurs", "verspätung", "problem", "skandal", "drohung", "kürzung",
+  "krieg", "militär", "angriff", "rakete", "raketen", "drohne", "drohnen",
+  "tod", "tote", "verletzte", "sabotage", "spionage", "eskalation",
+  "absturz", "anschlag", "terror", "schüsse", "festnahme", "razzia"
 ];
+
+/**
+ * Hard Crisis & Conflict Veto Regex
+ * Under NO CIRCUMSTANCES should military escalation, warfare, violence, casualties or disasters receive a "positive" sentiment badge.
+ */
+const CONFLICT_DISASTER_VETO_REGEX = /\b(krieg|ukraine-krieg|militär|militärflugzeug|militärmaschine|angriff|raketenangriff|drohnenangriff|frontverlauf|luftschlag|bomben|granaten|panzer|sabotage|spionage|kreml|pentagon|moskau|kiew|gaza|nahost|hisbollah|hamas|israelische armee|idf|truppen|soldaten|tote|getötet|verletzte|opfer|leiche|bluttat|mord|anschlag|terror|flugzeugabsturz|havarie|schiffsunglück|insolvenz|massenentlassung|rezession)\b/i;
 
 export function enrichArticle(article: Article): Article {
   const textToScan = `${article.title} ${article.teaser} ${article.sourceName}`.toLowerCase();
 
-  // 1. Detect Local Status
-  const isLocal = article.isLocal ?? LOCAL_KEYWORDS.some(kw => textToScan.includes(kw));
+  // 1. Detect Local Status with High Precision Gatekeeper
+  const isLocal = isLegitimateLocalArticle({
+    title: article.title,
+    teaser: article.teaser,
+    sourceId: article.sourceId,
+    sourceName: article.sourceName,
+    category: article.category,
+    url: article.url
+  });
 
-  // 2. Sentiment Analysis
+  // 2. Sentiment Analysis with Crisis & Geopolitics Shield
   let sentiment: "positive" | "neutral" | "critical" = article.sentiment || "neutral";
-  if (!article.sentiment) {
-    const posScore = POSITIVE_KEYWORDS.filter(kw => textToScan.includes(kw)).length;
-    const critScore = CRITICAL_KEYWORDS.filter(kw => textToScan.includes(kw)).length;
-    if (posScore > critScore) {
-      sentiment = "positive";
-    } else if (critScore > posScore) {
-      sentiment = "critical";
+  
+  const isCrisisOrConflict = CONFLICT_DISASTER_VETO_REGEX.test(textToScan);
+
+  if (!article.sentiment || (article.sentiment === "positive" && isCrisisOrConflict)) {
+    if (isCrisisOrConflict) {
+      // Hard cap: conflict/war/disasters can NEVER be positive
+      const critScore = CRITICAL_KEYWORDS.filter(kw => textToScan.includes(kw)).length;
+      sentiment = critScore > 0 ? "critical" : "neutral";
+    } else {
+      const posScore = POSITIVE_KEYWORDS.filter(kw => textToScan.includes(kw)).length;
+      const critScore = CRITICAL_KEYWORDS.filter(kw => textToScan.includes(kw)).length;
+      if (posScore > critScore) {
+        sentiment = "positive";
+      } else if (critScore > posScore) {
+        sentiment = "critical";
+      } else {
+        sentiment = "neutral";
+      }
     }
   }
 
   // 3. Generate 3 Bulletpoints for TL;DR Hover
   let summaryBullets = article.summaryBullets;
   if (!summaryBullets || summaryBullets.length === 0) {
-    // Split teaser into sentences or craft 3 logical bullets
-    const cleanTeaser = article.teaser.replace(/<[^>]*>/g, "");
+    const cleanTeaser = (article.teaser || "").replace(/<[^>]*>/g, "");
     const rawSentences = cleanTeaser
       .split(/(?<=[.!?])\s+/)
       .map(s => s.trim())

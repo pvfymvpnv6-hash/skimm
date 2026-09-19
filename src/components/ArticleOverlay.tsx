@@ -57,6 +57,79 @@ function isAuthorOrLogoUrl(url?: string): boolean {
   );
 }
 
+function isMatchingImageUrl(imgSrc: string, coverUrl?: string): boolean {
+  if (!imgSrc || !coverUrl) return false;
+  const normalize = (u: string) => {
+    try {
+      const parsed = new URL(u.startsWith("//") ? "https:" + u : u.startsWith("http") ? u : "https://" + u);
+      return (parsed.hostname + parsed.pathname)
+        .replace(/\/cover\/\d+\/\d+[^/]*\//, "/")
+        .replace(/-\d+x\d+(\.[a-zA-Z]+)$/, "$1")
+        .toLowerCase();
+    } catch {
+      return u.split("?")[0].replace(/^https?:\/\//, "").toLowerCase();
+    }
+  };
+  const nSrc = normalize(imgSrc);
+  const nCover = normalize(coverUrl);
+  if (!nSrc || !nCover) return false;
+  return nSrc === nCover || nSrc.includes(nCover) || nCover.includes(nSrc);
+}
+
+function cleanArticleContent(html?: string, coverImageUrl?: string): string {
+  if (!html) return "";
+  let clean = html;
+
+  // 1. Remove 1x1 tracking pixels (VG Wort, IVW, analytics)
+  clean = clean.replace(/<img[^>]+(?:width=["']1["']|height=["']1["']|vgwort|ivw|tracking)[^>]*>/gi, "");
+
+  // 2. Remove Google News preference / Quellen banners (handles both with and without surrounding <hr>)
+  clean = clean.replace(/<hr\s*\/?>\s*(?:ℹ️|&#8505;|ℹ)?\s*<a[^>]+(?:google|quelleneinstellungen|bevorzugte)[^>]*>[\s\S]*?<\/a>(?:\s*<br\s*\/?>)?(?:\s*<small>[\s\S]*?<\/small>)?\s*(?:<hr\s*\/?>)?/gi, "");
+  clean = clean.replace(/<p[^>]*>(?:(?!<p[\s>])[\s\S])*?(?:bei\s+Google\s+(?:bevorzugen|folgen|sehen)|bei\s+Google\s+News|auf\s+(?:Telegram|WhatsApp)\s+folgen|google\.com\/preferences\/source|quelleneinstellungen-google|bevorzugte\s+Quelle\s+bei\s+Google)(?:(?!<p[\s>])[\s\S])*?<\/p>/gi, "");
+  clean = clean.replace(/(?:ℹ️|&#8505;|ℹ)?\s*<a[^>]+(?:google|quelleneinstellungen|bevorzugte)[^>]*>[\s\S]*?<\/a>(?:\s*<br\s*\/?>)?(?:\s*<small>[\s\S]*?<\/small>)?/gi, "");
+
+  // 3. Remove publisher syndication footer paragraphs
+  clean = clean.replace(/<p[^>]*>(?:(?!<p[\s>])[\s\S])*?Der\s+Beitrag\s+(?:(?!<p[\s>])[\s\S])*?(?:wurde\s+zuerst|erschien\s+zuerst)\s+auf(?:(?!<p[\s>])[\s\S])*?<\/p>/gi, "");
+  clean = clean.replace(/<p[^>]*>(?:(?!<p[\s>])[\s\S])*?The\s+post\s+(?:(?!<p[\s>])[\s\S])*?appeared\s+first\s+on(?:(?!<p[\s>])[\s\S])*?<\/p>/gi, "");
+
+  // 4. Remove Amazon deals affiliate CTAs, banners & ad paragraphs
+  clean = clean.replace(/<p[^>]*>(?:(?!<p[\s>])[\s\S])*?(?:(?:🔥\s*)?Amazon-Deals\s+heute|amazon-angebote-feed|Zu\s+den\s+Deals\s+bei\s+Amazon|\(Anzeige\)|\(Werbung\))(?:(?!<p[\s>])[\s\S])*?<\/p>/gi, "");
+
+  // 5. Remove publisher support / donation / Steady blocks
+  clean = clean.replace(/<p[^>]*>(?:(?!<p[\s>])[\s\S])*?(?:steady\.page|frei\s+zugänglich\s*–\s*mit\s+deiner\s+Hilfe)(?:(?!<p[\s>])[\s\S])*?<\/p>/gi, "");
+
+  // 6. Remove RSS feed notice / "Folge uns" signatures
+  clean = clean.replace(/<p[^>]*>(?:(?!<p[\s>])[\s\S])*?(?:Du\s+liest\s+diesen\s+Beitrag\s+im\s+RSS-Feed|Folge\s+uns)(?:(?!<p[\s>])[\s\S])*?<\/p>/gi, "");
+
+  // 7. Remove embedded related articles / "Jetzt lesen →" cross-promo blocks at footer
+  clean = clean.replace(/<hr\s*\/?>\s*(?:<p[^>]*>\s*<img[^>]+>\s*<\/p>\s*)?<h3><a[^>]+>[\s\S]*?<\/a><\/h3>\s*<p>[\s\S]*?Jetzt\s+lesen[\s\S]*?<\/p>/gi, "");
+
+  // 8. Remove duplicate cover image from content if coverImageUrl is provided
+  if (coverImageUrl) {
+    clean = clean.replace(/<a\s+[^>]*>\s*<img[^>]+src=["']([^"']+)["'][^>]*>\s*<\/a>/gi, (match, src) => {
+      return isMatchingImageUrl(src, coverImageUrl) ? "" : match;
+    });
+    clean = clean.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (match, src) => {
+      return isMatchingImageUrl(src, coverImageUrl) ? "" : match;
+    });
+    clean = clean.replace(/^\s*(?:<p[^>]*>\s*)?(?:<a\s+[^>]*>\s*)?<img[^>]+>(?:\s*<\/a>)?(?:\s*<\/p>)?/gi, "");
+  }
+
+  // 9. Remove residual placeholder artifacts (e.g. ZEIT "None" text when description was empty)
+  clean = clean.replace(/^(?:<p[^>]*>)?\s*None\s*(?:<\/p>)?$/i, "");
+
+  // 10. Unwrap all remaining <a> tags into plain text (no external links in article body)
+  clean = clean.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, "$1");
+
+  // 11. Remove dangling horizontal rules, trailing empty tags, <br>, or empty <p>
+  clean = clean.replace(/<hr\s*\/?>\s*(?=<hr|\s*$)/gi, "");
+  clean = clean.replace(/<p>\s*(?:<br\s*\/?>|\s)*\s*<\/p>/gi, "");
+  clean = clean.replace(/(?:<hr\s*\/?>\s*)+$/gi, "");
+  clean = clean.replace(/(?:<br\s*\/?>\s*)+$/gi, "");
+
+  return clean.trim();
+}
+
 export default function ArticleOverlay({
   article,
   onClose,
@@ -115,7 +188,7 @@ export default function ArticleOverlay({
     }
   }, [article.url, article.imageUrl, scrapedOverlayImg, imgError]);
 
-  // Combined AI action: Generates summary AND expands article in one smooth action
+  // Combined AI action: Generates summary AND expands article in one smooth action with progressive rendering
   const handleAiAnalysis = async () => {
     setIsExpanding(true);
     if (!summary) {
@@ -131,9 +204,37 @@ export default function ArticleOverlay({
         .replace(/\s+/g, " ")
         .trim();
 
-      // Trigger both endpoints in parallel for maximum performance
+      const controller = new AbortController();
+      const clientTimeoutId = setTimeout(() => controller.abort(), 12000);
+
+      // 1. Trigger summary asynchronously and display immediately upon completion (~1s)
+      const summaryPromise = fetch("/api/news/summarize", {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          title: article.title, 
+          text: rawTextToAnalyze || article.teaser || article.title,
+          url: article.url 
+        })
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.summary) {
+            setSummary(data.summary);
+          }
+        })
+        .catch(err => {
+          console.warn("Summary fetch error:", err);
+        })
+        .finally(() => {
+          setLoadingSummary(false);
+        });
+
+      // 2. Trigger in-depth article expansion independently and render as soon as ready (~2-4s)
       const expandPromise = fetch("/api/news/expand", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: article.title,
@@ -143,37 +244,42 @@ export default function ArticleOverlay({
           url: article.url,
           existingContent: rawTextToAnalyze || article.teaser || article.title
         })
-      }).then(r => r.json());
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.content) {
+            const sanitizedContent = data.content.replace(
+              /<div[^>]*>(?:(?!<\/div>).)*?Das Wichtigste auf einen Blick.*?<\/div>/gis,
+              ""
+            );
+            setExpandedContent(sanitizedContent);
+            setExpandedSuccess(true);
+          } else {
+            // Fallback content if empty response
+            setExpandedContent(`
+              <h3 class="text-xl font-bold mt-6 mb-3 text-white">Vertiefte Einordnung</h3>
+              <p class="mb-4 text-slate-200 leading-relaxed">${article.teaser || article.title}</p>
+            `);
+            setExpandedSuccess(true);
+          }
+        })
+        .catch(err => {
+          console.warn("Expand fetch error:", err);
+          // Always ensure content is visible even on network hiccup
+          setExpandedContent(`
+            <h3 class="text-xl font-bold mt-6 mb-3 text-white">Vertiefte Einordnung</h3>
+            <p class="mb-4 text-slate-200 leading-relaxed">${article.teaser || article.title}</p>
+          `);
+          setExpandedSuccess(true);
+        })
+        .finally(() => {
+          setIsExpanding(false);
+        });
 
-      const summaryPromise = !summary
-        ? fetch("/api/news/summarize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              title: article.title, 
-              text: rawTextToAnalyze || article.teaser || article.title,
-              url: article.url 
-            })
-          }).then(r => r.json())
-        : Promise.resolve(null);
-
-      const [expandData, summaryData] = await Promise.all([expandPromise, summaryPromise]);
-
-      if (expandData && expandData.content) {
-        // Robust cleanup: remove any legacy duplicate take-aways boxes that might linger in cached HTML
-        const sanitizedContent = expandData.content.replace(
-          /<div[^>]*>(?:(?!<\/div>).)*?Das Wichtigste auf einen Blick.*?<\/div>/gis,
-          ""
-        );
-        setExpandedContent(sanitizedContent);
-        setExpandedSuccess(true);
-      }
-      if (summaryData && summaryData.summary) {
-        setSummary(summaryData.summary);
-      }
+      await Promise.allSettled([summaryPromise, expandPromise]);
+      clearTimeout(clientTimeoutId);
     } catch (err) {
       console.error("Error running AI analysis:", err);
-    } finally {
       setIsExpanding(false);
       setLoadingSummary(false);
     }
@@ -201,7 +307,22 @@ export default function ArticleOverlay({
     // Split by newline or bullet characters
     const lines = summary.split("\n")
       .map(line => line.replace(/^-\s*/, "").replace(/^\*\s*/, "").replace(/^•\s*/, "").trim())
-      .filter(line => line.length > 0);
+      .filter(line => {
+        if (line.length === 0) return false;
+        const low = line.toLowerCase();
+        // Remove redundant introductory sentences
+        if (
+          low.startsWith("hier ist") ||
+          low.startsWith("hier sind") ||
+          low.startsWith("zusammenfassung") ||
+          low.startsWith("im folgenden") ||
+          low.startsWith("die kernaussagen") ||
+          (low.endsWith(":") && line.split(" ").length <= 8 && !line.includes("**"))
+        ) {
+          return false;
+        }
+        return true;
+      });
       
     return (
       <ul className="space-y-2.5 mt-3">
@@ -235,6 +356,12 @@ export default function ArticleOverlay({
   const wordCount = activeContentText.split(/\s+/).filter(Boolean).length;
   const computedReadingMins = Math.max(2, Math.round(wordCount / 170));
   const readingTimeLabel = `${computedReadingMins} Min. Lesezeit`;
+
+  const activeCoverUrl = (!imgError && article.imageUrl && !isAuthorOrLogoUrl(article.imageUrl))
+    ? article.imageUrl
+    : (scrapedOverlayImg && !isAuthorOrLogoUrl(scrapedOverlayImg))
+      ? scrapedOverlayImg
+      : "";
 
   return (
     <div 
@@ -395,52 +522,40 @@ export default function ArticleOverlay({
             </div>
 
             {/* Immersive Cover Image */}
-            {(() => {
-              const activeCoverUrl = (!imgError && article.imageUrl && !isAuthorOrLogoUrl(article.imageUrl))
-                ? article.imageUrl
-                : (scrapedOverlayImg && !isAuthorOrLogoUrl(scrapedOverlayImg))
-                  ? scrapedOverlayImg
-                  : "";
-
-              if (activeCoverUrl) {
-                return (
-                  <div className="aspect-video rounded-2xl overflow-hidden mb-8 border border-slate-800 bg-slate-900 relative shadow-md">
-                    <img
-                      src={activeCoverUrl}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                      onError={() => {
-                        if (activeCoverUrl === article.imageUrl) {
-                          setImgError(true);
-                        } else {
-                          setScrapedOverlayImg(null);
-                        }
-                      }}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                );
-              }
-
-              return (
-                <div className="aspect-video rounded-2xl overflow-hidden mb-8 border border-slate-800 bg-gradient-to-br from-slate-900 via-indigo-950/80 to-slate-900 relative flex flex-col justify-between p-6 md:p-8 shadow-inner">
-                  <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/10 via-transparent to-transparent pointer-events-none" />
-                  <div className="flex items-center justify-between z-10">
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-widest font-mono">
-                      {article.category}
-                    </span>
-                    <span className="text-xs font-mono text-slate-400 font-bold uppercase tracking-wider">
-                      {article.sourceName}
-                    </span>
-                  </div>
-                  <div className="z-10 my-auto py-2">
-                    <p className="text-xl md:text-2xl font-bold text-white line-clamp-3 leading-snug">
-                      {article.title}
-                    </p>
-                  </div>
+            {activeCoverUrl ? (
+              <div className="aspect-video rounded-2xl overflow-hidden mb-8 border border-slate-800 bg-slate-900 relative shadow-md">
+                <img
+                  src={activeCoverUrl}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  onError={() => {
+                    if (activeCoverUrl === article.imageUrl) {
+                      setImgError(true);
+                    } else {
+                      setScrapedOverlayImg(null);
+                    }
+                  }}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="aspect-video rounded-2xl overflow-hidden mb-8 border border-slate-800 bg-gradient-to-br from-slate-900 via-indigo-950/80 to-slate-900 relative flex flex-col justify-between p-6 md:p-8 shadow-inner">
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/10 via-transparent to-transparent pointer-events-none" />
+                <div className="flex items-center justify-between z-10">
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-widest font-mono">
+                    {article.category}
+                  </span>
+                  <span className="text-xs font-mono text-slate-400 font-bold uppercase tracking-wider">
+                    {article.sourceName}
+                  </span>
                 </div>
-              );
-            })()}
+                <div className="z-10 my-auto py-2">
+                  <p className="text-xl md:text-2xl font-bold text-white line-clamp-3 leading-snug">
+                    {article.title}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Original Article Lead / Expanded Teaser Box */}
             <div className="my-6 p-6 md:p-7 rounded-2xl bg-slate-900/90 border border-slate-800 text-slate-100 shadow-xl relative overflow-hidden">
@@ -454,8 +569,18 @@ export default function ArticleOverlay({
               <div className="space-y-3">
                 {article.content ? (
                   <div 
-                    className="text-slate-100 text-base md:text-lg font-medium leading-relaxed font-sans"
-                    dangerouslySetInnerHTML={{ __html: article.content }}
+                    className="text-slate-100 text-base md:text-lg font-medium leading-relaxed font-sans [&_a]:text-indigo-400 [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:text-indigo-300 [&_img]:rounded-xl [&_img]:my-4 [&_img]:max-w-full [&_img]:h-auto [&_p]:mb-4 last:[&_p]:mb-0"
+                    dangerouslySetInnerHTML={{ __html: cleanArticleContent(article.content, activeCoverUrl) }}
+                    onClick={(e) => {
+                      const target = (e.target as HTMLElement).closest("a");
+                      if (target) {
+                        const href = target.getAttribute("href");
+                        if (href && !href.startsWith("#") && !href.startsWith("javascript:")) {
+                          e.preventDefault();
+                          window.open(href, "_blank", "noopener,noreferrer");
+                        }
+                      }
+                    }}
                   />
                 ) : (
                   <p className="text-slate-100 text-base md:text-lg font-medium leading-relaxed">
@@ -531,12 +656,12 @@ export default function ArticleOverlay({
                   )}
                 </div>
 
-                {/* Loading Progress State */}
-                {(isExpanding || loadingSummary) && (
+                {/* Loading Progress State for Summary */}
+                {loadingSummary && (
                   <div className="mt-4 pt-3 border-t border-indigo-900/50 space-y-2.5 animate-pulse">
                     <div className="flex items-center gap-2 text-indigo-300 font-mono text-xs font-bold uppercase tracking-wider">
                       <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping" />
-                      <span>Gemini KI analysiert Beitrag & Hintergründe...</span>
+                      <span>Gemini KI extrahiert Kernaussagen...</span>
                     </div>
                     <div className="h-3.5 bg-indigo-900/40 rounded w-full"></div>
                     <div className="h-3.5 bg-indigo-900/40 rounded w-4/5"></div>
@@ -555,13 +680,44 @@ export default function ArticleOverlay({
               </div>
             </div>
 
+            {/* In-depth Detail Analysis Skeleton Shimmer while Generating */}
+            {isExpanding && (
+              <div className="my-8 p-6 md:p-8 bg-slate-900/80 border border-indigo-500/30 rounded-2xl shadow-xl space-y-4 animate-pulse">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2 text-indigo-300 font-mono text-xs font-bold uppercase tracking-wider">
+                    <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
+                    <span>Gemini KI recherchiert Hintergründe & vertieft Analyse...</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-500">Live-Synthese</span>
+                </div>
+                <div className="h-6 bg-slate-800 rounded-lg w-2/5 mb-3" />
+                <div className="h-4 bg-slate-800/80 rounded w-full" />
+                <div className="h-4 bg-slate-800/80 rounded w-11/12" />
+                <div className="h-4 bg-slate-800/80 rounded w-4/5" />
+                <div className="h-6 bg-slate-800 rounded-lg w-1/3 mt-6" />
+                <div className="h-4 bg-slate-800/80 rounded w-full" />
+                <div className="h-4 bg-slate-800/80 rounded w-3/4" />
+              </div>
+            )}
+
             {/* Expanded / Deepened Article Body Display with High-Contrast Typography */}
-            {expandedSuccess && (
-              <div 
-                id="article-body-content"
-                className="prose prose-invert max-w-none font-sans leading-relaxed text-base md:text-lg my-8 p-6 md:p-8 bg-slate-900/90 border border-slate-800 text-slate-100 rounded-2xl shadow-xl prose-headings:text-white prose-headings:font-bold prose-headings:tracking-tight prose-p:text-slate-200 prose-p:leading-relaxed prose-strong:text-white prose-strong:font-bold prose-blockquote:border-indigo-500 prose-blockquote:bg-indigo-950/30 prose-blockquote:text-indigo-200 prose-li:text-slate-200"
-                dangerouslySetInnerHTML={{ __html: expandedContent }}
-              />
+            {expandedSuccess && expandedContent && (
+              <div className="my-8 animate-fade-in">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center gap-2 text-xs font-mono text-indigo-300 font-bold uppercase tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>Vertiefte Recherche & Detailanalyse</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {readingTimeLabel}
+                  </span>
+                </div>
+                <div 
+                  id="article-body-content"
+                  className="prose prose-invert max-w-none font-sans leading-relaxed text-base md:text-lg p-6 md:p-8 bg-slate-900/90 border border-slate-800 text-slate-100 rounded-2xl shadow-xl prose-headings:text-white prose-headings:font-bold prose-headings:tracking-tight prose-p:text-slate-200 prose-p:leading-relaxed prose-strong:text-white prose-strong:font-bold prose-blockquote:border-indigo-500 prose-blockquote:bg-indigo-950/30 prose-blockquote:text-indigo-200 prose-li:text-slate-200"
+                  dangerouslySetInnerHTML={{ __html: expandedContent }}
+                />
+              </div>
             )}
 
             {/* End of article content */}

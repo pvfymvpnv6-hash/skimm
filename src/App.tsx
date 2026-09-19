@@ -21,6 +21,8 @@ import NewsTicker from "./components/NewsTicker";
 import PoliceTicker from "./components/PoliceTicker";
 import { BrandLogo } from "./components/BrandLogo";
 import { stripEmojis } from "./utils/textUtils";
+import { cleanCanonicalUrl, normalizeTitleFingerprint, generateDeterministicArticleId } from "./utils/articleIdentity";
+import { classifyArticleCategory, isSportArticle, isLegitimateBreakingNews } from "./utils/categoryClassifier";
 
 // Simulated breaking news pool removed for production RSS live push integration
 
@@ -158,7 +160,14 @@ export default function App() {
   const [activeAlert, setActiveAlert] = useState<Article | null>(null);
   const [pushHistory, setPushHistory] = useState<Article[]>(() => {
     const saved = localStorage.getItem("news_push_history");
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    try {
+      const parsed: Article[] = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(a => a && a.title && isLegitimateBreakingNews(a.title, a.teaser, a.sourceId));
+      }
+    } catch (e) {}
+    return [];
   });
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>(() => {
     const saved = localStorage.getItem("news_dismissed_alerts");
@@ -238,6 +247,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("news_deleted_alerts", JSON.stringify(deletedAlerts));
   }, [deletedAlerts]);
+
+  useEffect(() => {
+    localStorage.setItem("news_push_history", JSON.stringify(pushHistory));
+  }, [pushHistory]);
 
   // Clean up audio on unmount
   useEffect(() => {
@@ -535,6 +548,7 @@ export default function App() {
         if (pushEnabled) {
           const breakingArticles = data.articles.filter((art: Article) => {
             if (!art.isBreaking) return false;
+            if (!isLegitimateBreakingNews(art.title, art.teaser, art.sourceId)) return false;
             if (deletedAlerts.includes(art.id)) return false;
 
             const normTitle = (art.title || "").toLowerCase().trim();
@@ -615,62 +629,87 @@ export default function App() {
 
 function isSportArticleClient(art: Article): boolean {
   if (!art) return false;
-  const cat = (art.category || "").toLowerCase();
-  if (cat.includes("sport") || cat.includes("fussball") || cat.includes("fußball") || cat.includes("bundesliga")) {
-    return true;
-  }
-  const url = (art.url || "").toLowerCase();
-  if (
-    url.includes("/sport/") ||
-    url.includes("/sports/") ||
-    url.includes("/fussball/") ||
-    url.includes("/fußball/") ||
-    url.includes("/bundesliga/") ||
-    url.includes("/champions-league/") ||
-    url.includes("kicker.de") ||
-    url.includes("sport1.de") ||
-    url.includes("transfermarkt.de")
-  ) {
-    return true;
-  }
-  const text = ((art.title || "") + " " + (art.teaser || "") + " " + (art.content || "")).toLowerCase();
-  const sportsKeywords = [
-    "fc bayern", "bayern münchen", "bvb", "borussia dortmund", "bayer leverkusen", "rb leipzig",
-    "eintracht frankfurt", "vfb stuttgart", "vfl wolfsburg", "werder bremen", "borussia mönchengladbach",
-    "schalke 04", "1. fc köln", "hsv", "hertha bsc", "1. fc union berlin", "st. pauli", "real madrid",
-    "fc barcelona", "manchester city", "manchester united", "liverpool fc", "psg", "dfb", "nationalelf",
-    "palhinha", "joao palhinha", "joão palhinha", "harry kane", "musiala", "thomas müller", "manuel neuer",
-    "leroy sané", "serge gnabry", "joshua kimmich", "vincent kompany", "thomas tuchel", "julian nagelsmann",
-    "jürgen klopp", "mbappé", "messi", "ronaldo", "haaland", "bellingham", "xabi alonso", "uli hoeneß", "max eberl",
-    "bundesliga", "2. bundesliga", "champions league", "europa league", "dfb-pokal", "weltmeisterschaft",
-    "europameisterschaft", "formel 1", "formel1", "f1", "grand prix", "super bowl", "nfl", "nba", "wimbledon",
-    "transfermarkt", "ablösesumme", "neuzugang", "cheftrainer", "fußball-profi", "fussball-profi",
-    "stürmer", "torwart", "startelf", "tabellenführer", "tabellenplatz", "abstiegskampf", "elfmeter", "schiedsrichter",
-    "spieltag", "skispringen", "biathlon", "radsport"
-  ];
-  if (sportsKeywords.some(kw => text.includes(kw))) return true;
-  if (/\b(sport|sportart|sportler|sportlerin|sportlich|sportliche|sportlichen|fußball|fussball|kicker)\b/i.test(text)) return true;
-  return false;
+  return isSportArticle(art.title, art.teaser || art.content || "", art.url, art.category);
 }
 
   const dynamicArticles = useMemo(() => {
-    const baseArticles = articles.length > 0 ? articles : MOCK_ARTICLES;
+    const rawBaseArticles = articles.length > 0 ? articles : MOCK_ARTICLES;
 
-    // Merge saved articles into base pool if they aren't already present
-    const mergedArticles = [...baseArticles];
-    savedArticlesStore.forEach(savedArt => {
-      if (!mergedArticles.some(a => a.id === savedArt.id)) {
-        mergedArticles.push(savedArt);
-      }
+    // 1. Normalize all live articles with deterministic IDs & robust classification
+    const baseArticles = rawBaseArticles.map((art) => {
+      const canonicalUrl = cleanCanonicalUrl(art.url);
+      const titleNorm = normalizeTitleFingerprint(art.title);
+      const stableId = (art.id && !art.id.includes("NaN")) 
+        ? art.id 
+        : generateDeterministicArticleId(art.sourceId, art.url, art.title);
+      const category = classifyArticleCategory(art.title, art.teaser || art.content || "", art.url, art.category);
+      return {
+        ...art,
+        id: stableId,
+        category
+      };
     });
 
+    // 2. Normalize and integrate saved articles store
+    const normalizedSavedStore = savedArticlesStore.map((savedArt) => {
+      const stableId = (savedArt.id && !savedArt.id.includes("NaN")) 
+        ? savedArt.id 
+        : generateDeterministicArticleId(savedArt.sourceId, savedArt.url, savedArt.title);
+      const category = classifyArticleCategory(savedArt.title, savedArt.teaser || savedArt.content || "", savedArt.url, savedArt.category);
+      return {
+        ...savedArt,
+        id: stableId,
+        category
+      };
+    });
+
+    // 3. Robust multi-level deduplication:
+    // Check ID, Canonical URL and Title Fingerprint (per source)
     const seenIds = new Set<string>();
+    const seenUrls = new Set<string>();
+    const seenSourceTitles = new Set<string>();
     const uniqueArticles: Article[] = [];
-    for (const art of mergedArticles) {
-      if (art && art.id && !seenIds.has(art.id) && !isSportArticleClient(art)) {
-        seenIds.add(art.id);
-        uniqueArticles.push(art);
-      }
+
+    // Prioritize live stream articles first
+    for (const art of baseArticles) {
+      if (!art || !art.title) continue;
+      if (isSportArticleClient(art)) continue;
+
+      const artId = art.id;
+      const canonicalUrl = cleanCanonicalUrl(art.url);
+      const titleNorm = normalizeTitleFingerprint(art.title);
+      const sourceTitleKey = `${art.sourceId}::${titleNorm}`;
+
+      if (artId && seenIds.has(artId)) continue;
+      if (canonicalUrl && seenUrls.has(canonicalUrl)) continue;
+      if (titleNorm && seenSourceTitles.has(sourceTitleKey)) continue;
+
+      if (artId) seenIds.add(artId);
+      if (canonicalUrl) seenUrls.add(canonicalUrl);
+      if (titleNorm) seenSourceTitles.add(sourceTitleKey);
+
+      uniqueArticles.push(art);
+    }
+
+    // Append historical saved articles if they dropped out of live RSS feed
+    for (const savedArt of normalizedSavedStore) {
+      if (!savedArt || !savedArt.title) continue;
+      if (isSportArticleClient(savedArt)) continue;
+
+      const artId = savedArt.id;
+      const canonicalUrl = cleanCanonicalUrl(savedArt.url);
+      const titleNorm = normalizeTitleFingerprint(savedArt.title);
+      const sourceTitleKey = `${savedArt.sourceId}::${titleNorm}`;
+
+      if (artId && seenIds.has(artId)) continue;
+      if (canonicalUrl && seenUrls.has(canonicalUrl)) continue;
+      if (titleNorm && seenSourceTitles.has(sourceTitleKey)) continue;
+
+      if (artId) seenIds.add(artId);
+      if (canonicalUrl) seenUrls.add(canonicalUrl);
+      if (titleNorm) seenSourceTitles.add(sourceTitleKey);
+
+      uniqueArticles.push(savedArt);
     }
 
     return uniqueArticles;

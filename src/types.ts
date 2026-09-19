@@ -77,6 +77,18 @@ export interface StockInfo {
   timestamps?: number[];
 }
 
+export interface StockPriceAlert {
+  id: string;
+  symbol: string;
+  name: string;
+  targetPrice: number;
+  condition: "above" | "below";
+  currency: string;
+  createdAt: number;
+  triggered: boolean;
+  triggeredAt?: number;
+}
+
 export interface BriefingTopic {
   title: string;
   teaser: string;
