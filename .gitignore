@@ -1,7 +1,7 @@
 node_modules/
 build/
 dist/
-.netlify/
+.vercel/
 coverage/
 .DS_Store
 *.log
