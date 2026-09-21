@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
-import { routes, type ApiResponse } from "../apiRoutes";
+import { routes, type ApiResponse } from "../apiRoutes.js";
 
 // ----------------------------------------------------
 // Vercel Serverless Function (Node.js runtime).

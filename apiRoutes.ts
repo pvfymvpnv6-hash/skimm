@@ -1,8 +1,8 @@
 import Parser from "rss-parser";
 import { GoogleGenAI } from "@google/genai";
-import { MOCK_ARTICLES } from "./src/data/mockNews";
-import { classifyArticleCategory, isLegitimateBreakingNews } from "./src/utils/categoryClassifier";
-import { isLegitimateLocalArticle } from "./src/utils/localNewsClassifier";
+import { MOCK_ARTICLES } from "./src/data/mockNews.js";
+import { classifyArticleCategory, isLegitimateBreakingNews } from "./src/utils/categoryClassifier.js";
+import { isLegitimateLocalArticle } from "./src/utils/localNewsClassifier.js";
 
 // ----------------------------------------------------
 // Framework-neutral route table.
