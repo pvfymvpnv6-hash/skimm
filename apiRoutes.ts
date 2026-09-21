@@ -1,8 +1,8 @@
 import Parser from "rss-parser";
 import { GoogleGenAI } from "@google/genai";
-import { MOCK_ARTICLES } from "./src/data/mockNews";
-import { classifyArticleCategory, isLegitimateBreakingNews } from "./src/utils/categoryClassifier";
-import { isLegitimateLocalArticle } from "./src/utils/localNewsClassifier";
+import { MOCK_ARTICLES } from "./src/data/mockNews.js";
+import { classifyArticleCategory, isLegitimateBreakingNews } from "./src/utils/categoryClassifier.js";
+import { isLegitimateLocalArticle } from "./src/utils/localNewsClassifier.js";
 
 // ----------------------------------------------------
 // Framework-neutral route table.
@@ -687,19 +687,26 @@ get("/api/news", async (req, res) => {
 
         return parsedArticles;
       } catch (e) {
+        console.error(`[news] Feed "${feedConfig.id}" (${feedConfig.url}) failed:`, e instanceof Error ? e.message : e);
         return [];
       }
     });
 
+    const newsFetchStart = Date.now();
     const results = await Promise.allSettled(feedPromises);
+    console.log(`[news] ${activeFeeds.length} feeds settled in ${Date.now() - newsFetchStart}ms`);
     let allArticles: any[] = [];
-    results.forEach((r) => {
+    results.forEach((r, i) => {
       if (r.status === "fulfilled" && Array.isArray(r.value)) {
         allArticles.push(...r.value);
+      } else if (r.status === "rejected") {
+        console.error(`[news] Feed "${activeFeeds[i]?.id}" promise rejected:`, r.reason);
       }
     });
+    console.log(`[news] Collected ${allArticles.length} raw articles before dedup.`);
 
     if (allArticles.length === 0) {
+      console.warn("[news] All feeds returned 0 articles — falling back to MOCK_ARTICLES.");
       allArticles = MOCK_ARTICLES;
     }
 
@@ -1650,7 +1657,7 @@ async function fetchOgImage(targetUrl: string): Promise<string | null> {
       return imageUrl;
     }
   } catch (e) {
-    // Silent fail
+    console.error(`[scrape-image] Failed for ${targetUrl}:`, e instanceof Error ? e.message : e);
   }
   return null;
 }
