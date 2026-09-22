@@ -1,8 +1,10 @@
+import https from "node:https";
 import Parser from "rss-parser";
 import { GoogleGenAI } from "@google/genai";
 import { MOCK_ARTICLES } from "./src/data/mockNews.js";
 import { classifyArticleCategory, isLegitimateBreakingNews } from "./src/utils/categoryClassifier.js";
 import { isLegitimateLocalArticle } from "./src/utils/localNewsClassifier.js";
+import { POLIZEI_BRANDENBURG_CA_CHAIN } from "./caCerts.js";
 
 // ----------------------------------------------------
 // Framework-neutral route table.
@@ -569,7 +571,59 @@ let cachedArticles: any[] = [];
 let lastNewsFetchTime = 0;
 const NEWS_CACHE_TTL = 3 * 60 * 1000; // 3 minutes cache
 
+// polizei.brandenburg.de sends an incomplete TLS certificate chain (missing
+// intermediates), which fails Node's strict chain verification even though
+// the chain is legitimate (browsers silently paper over this via AIA
+// chasing). This agent supplies the missing intermediates + root so the
+// full signature chain still verifies properly - see caCerts.ts.
+const polizeiBrandenburgAgent = new https.Agent({
+  ca: POLIZEI_BRANDENBURG_CA_CHAIN,
+});
+
+function fetchViaNodeHttps(url: string, agent: https.Agent, timeoutMs: number): Promise<{ buffer: Buffer; contentType: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      {
+        agent,
+        timeout: timeoutMs,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/rss+xml, application/xml, text/xml, */*"
+        }
+      },
+      (res) => {
+        if (!res.statusCode || res.statusCode >= 400) {
+          res.resume();
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => resolve({ buffer: Buffer.concat(chunks), contentType: res.headers["content-type"] || "" }));
+        res.on("error", reject);
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("Request timeout")));
+    req.on("error", reject);
+  });
+}
+
 async function fetchAndParseRss(url: string, timeoutMs = 7000): Promise<any> {
+  let hostname = "";
+  try {
+    hostname = new URL(url).hostname;
+  } catch {}
+
+  if (hostname === "polizei.brandenburg.de") {
+    const { buffer, contentType } = await fetchViaNodeHttps(url, polizeiBrandenburgAgent, timeoutMs);
+    let text = decodeTextWithEncoding(buffer, contentType);
+    text = text.replace(/^\uFEFF/, "").trim();
+    const firstBracket = text.indexOf("<");
+    if (firstBracket > 0) text = text.slice(firstBracket);
+    return await parser.parseString(text);
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
