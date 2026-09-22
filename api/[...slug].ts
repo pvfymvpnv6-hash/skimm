@@ -8,6 +8,13 @@ import { routes, type ApiResponse } from "../apiRoutes.js";
 // server.ts for local development).
 // ----------------------------------------------------
 
+// Default Node function timeout (10s) is too short for /api/news/expand and
+// /api/news/summarize, which chain an article full-text fetch with up to 4
+// sequential Gemini model attempts (see callGeminiWithFallback in apiRoutes.ts).
+export const config = {
+  maxDuration: 30,
+};
+
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   // Vercel's Node.js runtime already parses JSON bodies onto req.body.
   const preParsed = (req as IncomingMessage & { body?: unknown }).body;
