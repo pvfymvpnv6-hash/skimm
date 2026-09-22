@@ -21,7 +21,7 @@ View your app in AI Studio: https://ai.studio/apps/0f030955-e29e-4a0a-96e5-0c005
 
 ## Deploy on Vercel
 
-The `/api/*` endpoints run as a single Vercel Serverless Function (`api/[...slug].ts`), which serves the route table from `apiRoutes.ts`. The same table is used by `server.ts` for local development. `vercel.json` sets the build (`npm run build:web` -> `dist`).
+The `/api/*` endpoints run as a single Vercel Serverless Function (`api/index.ts`), which serves the route table from `apiRoutes.ts`. A `vercel.json` rewrite (`/api/:path*` -> `/api?slug=:path*`) forwards every path to this one non-dynamic function, since Vercel's own dynamic `[...slug].ts` catch-all convention failed to route 2+ segment paths (e.g. `/api/news/expand`) in production. The same route table is used by `server.ts` for local development. `vercel.json` sets the build (`npm run build:web` -> `dist`).
 
 Set the following environment variables under Project Settings -> Environment Variables:
 - `GEMINI_API_KEY` - needed for the AI briefing/summary/expand endpoints; without it they return their built-in fallbacks.

@@ -3,9 +3,19 @@ import { routes, type ApiResponse } from "../apiRoutes.js";
 
 // ----------------------------------------------------
 // Vercel Serverless Function (Node.js runtime).
-// Catches every request under /api/* and dispatches it through the
+// Handles every request under /api/* and dispatches it through the
 // framework-neutral route table in apiRoutes.ts (same table used by
 // server.ts for local development).
+//
+// This is a plain, non-dynamic function (no [...slug] catch-all file).
+// vercel.json rewrites /api/:path* to /api?slug=:path*, so Vercel never
+// has to pattern-match a dynamic route file for nested paths - it only
+// ever resolves the single, always-matching /api route. The original
+// path is reconstructed here from the injected `slug` query param.
+// (A dynamic api/[...slug].ts catch-all file previously failed to match
+// any 2+ segment path like /api/news/expand on Vercel - GET /api/stocks
+// worked, POST /api/news/expand 404'd at the platform routing layer,
+// confirmed via Vercel function logs showing zero invocations.)
 // ----------------------------------------------------
 
 // Default Node function timeout (10s) is too short for /api/news/expand and
@@ -36,7 +46,12 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const method = (req.method || "GET").toUpperCase();
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+
+  // The vercel.json rewrite injects the real path (everything after /api/)
+  // as a `slug` query param, e.g. /api/news/expand -> slug=news/expand.
+  const slug = url.searchParams.get("slug") || "";
+  url.searchParams.delete("slug");
+  const pathname = ("/api/" + slug).replace(/\/+$/, "") || "/api";
 
   const sendJson = (status: number, data: unknown) => {
     res.statusCode = status;
