@@ -796,6 +796,9 @@ get("/api/news/police", async (req, res) => {
   try {
     const feed = await fetchAndParseRss(feedUrl, 5000);
     let rawItems = (feed && feed.items) ? feed.items : [];
+    if (rawItems.length === 0) {
+      console.error(`[police] Feed returned 0 items for region "${region}" (${feedUrl})`);
+    }
 
     // Fallback to main feed if regional feed returned 0 items
     if (rawItems.length === 0 && region !== "all") {
@@ -872,6 +875,7 @@ get("/api/news/police", async (req, res) => {
       nextSyncMs: 5 * 60 * 1000
     });
   } catch (err) {
+    console.error(`[police] Feed fetch failed for region "${region}" (${feedUrl}):`, err);
     res.json({
       articles: cached?.articles || [],
       lastSync: new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
