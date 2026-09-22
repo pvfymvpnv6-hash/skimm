@@ -64,7 +64,10 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
-// Resilient Gemini generator with fallback model support for 503 / high-demand spikes & timeouts
+// Resilient Gemini generator with fallback model support for 503 / high-demand spikes & timeouts.
+// `timeoutMs` is an OVERALL budget shared across all candidate model attempts (not per model) -
+// otherwise a handful of slow/degraded models can each burn their own full timeout in sequence
+// and blow well past the caller's own deadline (Vercel function maxDuration / client abort).
 async function callGeminiWithFallback(
   ai: GoogleGenAI,
   prompt: string,
@@ -79,7 +82,12 @@ async function callGeminiWithFallback(
     "gemini-3.7-flash"
   ];
 
+  const deadline = Date.now() + timeoutMs;
+
   for (const model of candidateModels) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 500) break; // not enough budget left for another attempt
+
     try {
       const response = await Promise.race([
         ai.models.generateContent({
@@ -88,7 +96,7 @@ async function callGeminiWithFallback(
           config,
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), timeoutMs)
+          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), remaining)
         )
       ]);
 
