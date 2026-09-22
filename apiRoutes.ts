@@ -1,8 +1,10 @@
+import https from "node:https";
 import Parser from "rss-parser";
 import { GoogleGenAI } from "@google/genai";
 import { MOCK_ARTICLES } from "./src/data/mockNews.js";
 import { classifyArticleCategory, isLegitimateBreakingNews } from "./src/utils/categoryClassifier.js";
 import { isLegitimateLocalArticle } from "./src/utils/localNewsClassifier.js";
+import { POLIZEI_BRANDENBURG_CA_CHAIN } from "./caCerts.js";
 
 // ----------------------------------------------------
 // Framework-neutral route table.
@@ -64,7 +66,10 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
-// Resilient Gemini generator with fallback model support for 503 / high-demand spikes & timeouts
+// Resilient Gemini generator with fallback model support for 503 / high-demand spikes & timeouts.
+// `timeoutMs` is an OVERALL budget shared across all candidate model attempts (not per model) -
+// otherwise a handful of slow/degraded models can each burn their own full timeout in sequence
+// and blow well past the caller's own deadline (Vercel function maxDuration / client abort).
 async function callGeminiWithFallback(
   ai: GoogleGenAI,
   prompt: string,
@@ -79,7 +84,12 @@ async function callGeminiWithFallback(
     "gemini-3.7-flash"
   ];
 
+  const deadline = Date.now() + timeoutMs;
+
   for (const model of candidateModels) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 500) break; // not enough budget left for another attempt
+
     try {
       const response = await Promise.race([
         ai.models.generateContent({
@@ -88,7 +98,7 @@ async function callGeminiWithFallback(
           config,
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), timeoutMs)
+          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), remaining)
         )
       ]);
 
@@ -561,7 +571,59 @@ let cachedArticles: any[] = [];
 let lastNewsFetchTime = 0;
 const NEWS_CACHE_TTL = 3 * 60 * 1000; // 3 minutes cache
 
+// polizei.brandenburg.de sends an incomplete TLS certificate chain (missing
+// intermediates), which fails Node's strict chain verification even though
+// the chain is legitimate (browsers silently paper over this via AIA
+// chasing). This agent supplies the missing intermediates + root so the
+// full signature chain still verifies properly - see caCerts.ts.
+const polizeiBrandenburgAgent = new https.Agent({
+  ca: POLIZEI_BRANDENBURG_CA_CHAIN,
+});
+
+function fetchViaNodeHttps(url: string, agent: https.Agent, timeoutMs: number): Promise<{ buffer: Buffer; contentType: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      {
+        agent,
+        timeout: timeoutMs,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/rss+xml, application/xml, text/xml, */*"
+        }
+      },
+      (res) => {
+        if (!res.statusCode || res.statusCode >= 400) {
+          res.resume();
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => resolve({ buffer: Buffer.concat(chunks), contentType: res.headers["content-type"] || "" }));
+        res.on("error", reject);
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("Request timeout")));
+    req.on("error", reject);
+  });
+}
+
 async function fetchAndParseRss(url: string, timeoutMs = 7000): Promise<any> {
+  let hostname = "";
+  try {
+    hostname = new URL(url).hostname;
+  } catch {}
+
+  if (hostname === "polizei.brandenburg.de") {
+    const { buffer, contentType } = await fetchViaNodeHttps(url, polizeiBrandenburgAgent, timeoutMs);
+    let text = decodeTextWithEncoding(buffer, contentType);
+    text = text.replace(/^\uFEFF/, "").trim();
+    const firstBracket = text.indexOf("<");
+    if (firstBracket > 0) text = text.slice(firstBracket);
+    return await parser.parseString(text);
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -788,6 +850,9 @@ get("/api/news/police", async (req, res) => {
   try {
     const feed = await fetchAndParseRss(feedUrl, 5000);
     let rawItems = (feed && feed.items) ? feed.items : [];
+    if (rawItems.length === 0) {
+      console.error(`[police] Feed returned 0 items for region "${region}" (${feedUrl})`);
+    }
 
     // Fallback to main feed if regional feed returned 0 items
     if (rawItems.length === 0 && region !== "all") {
@@ -864,6 +929,7 @@ get("/api/news/police", async (req, res) => {
       nextSyncMs: 5 * 60 * 1000
     });
   } catch (err) {
+    console.error(`[police] Feed fetch failed for region "${region}" (${feedUrl}):`, err);
     res.json({
       articles: cached?.articles || [],
       lastSync: new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),

@@ -15,7 +15,11 @@ Studio gebaut und von dort exportiert.
   `rss-parser`, Gemini-Anfragen via `@google/genai`, OG-Image-Scraping, Wetter/Verkehr/Aktien-
   Endpunkte). Diese Tabelle wird von zwei Stellen konsumiert:
   - `server.ts` (Express) für die lokale Entwicklung (`npm run dev`).
-  - `api/[...slug].ts` als Vercel Serverless Function für Produktion.
+  - `api/index.ts` als Vercel Serverless Function für Produktion. Kein dynamisches
+    `[...slug].ts`-Catch-all (das hat auf Vercel 2+-Segment-Pfade wie `/api/news/expand`
+    nicht erreicht - Plattform-Routing-Bug, siehe PR #7); stattdessen eine `rewrites`-Regel
+    in `vercel.json`, die `/api/:path*` als `?slug=:path*` an die statische `/api`-Route
+    übergibt.
 - **Package Manager:** `bun.lock` liegt im Repo (aus dem AI-Studio-Export); Vercel erkennt
   daran automatisch Bun für den Install-Schritt. Der Build selbst läuft über den in
   `vercel.json` gesetzten `buildCommand` (`npm run build:web`), unabhängig vom Install-Tool.
@@ -24,9 +28,8 @@ Studio gebaut und von dort exportiert.
 
 - **Produktion läuft auf Vercel.** Build-Konfiguration in `vercel.json`
   (`buildCommand: npm run build:web`, `outputDirectory: dist`, `framework: vite`).
-- Die `/api/*`-Endpunkte laufen als eine einzelne Vercel Serverless Function
-  (`api/[...slug].ts`), kein dauerhafter Express-Prozess. Sie delegiert an die Handler aus
-  `apiRoutes.ts`.
+- Die `/api/*`-Endpunkte laufen als eine einzelne Vercel Serverless Function (`api/index.ts`),
+  kein dauerhafter Express-Prozess. Sie delegiert an die Handler aus `apiRoutes.ts`.
 - **Netlify wurde abgeschaltet** und ist nicht mehr Teil des Deployments. Es sollen keine
   Netlify-spezifischen Dateien (`netlify.toml`, `netlify/`) wieder eingeführt werden.
 - `server.ts` bleibt für lokale Entwicklung (`npm run dev`, Vite Middleware + Express) sowie

@@ -205,7 +205,9 @@ export default function ArticleOverlay({
         .trim();
 
       const controller = new AbortController();
-      const clientTimeoutId = setTimeout(() => controller.abort(), 12000);
+      // Matches the 30s maxDuration on the /api/news/expand Vercel function,
+      // which can chain a full-text fetch with up to 4 sequential Gemini attempts.
+      const clientTimeoutId = setTimeout(() => controller.abort(), 25000);
 
       // 1. Trigger summary asynchronously and display immediately upon completion (~1s)
       const summaryPromise = fetch("/api/news/summarize", {
