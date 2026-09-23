@@ -1,257 +1,60 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  Car, Route, Construction, AlertTriangle, MapPin, Clock, 
-  ShieldAlert, Gauge, RefreshCw, CheckCircle2,
+import {
+  Route, Construction, AlertTriangle, MapPin, Clock,
+  RefreshCw, CheckCircle2, ShieldAlert,
   ExternalLink, X, Map, ChevronRight
 } from "lucide-react";
 import { stripEmojis } from "../utils/textUtils";
 
+// Live data comes from the official Autobahn GmbH API (Bundesautobahnen
+// only - no city streets or public transit), so there's no numeric delay-
+// in-minutes or congestion-percentage field to show; overallStatus/stats
+// below are derived from real counts instead.
 interface TrafficAlert {
   id: string;
-  road: string; // e.g. "A115", "S7", "B1"
-  type: "stau" | "sperrung" | "baustelle" | "bahn-verspaetung";
+  road: string; // e.g. "A115", "A10"
+  type: "stau" | "sperrung" | "baustelle";
   severity: "critical" | "moderate" | "minor";
   title: string;
   location: string;
   description: string;
   fullText?: string;
   url?: string;
-  delayMinutes: number;
 }
 
 interface RegionData {
   city: string;
-  zip: string;
+  roads: string[];
   overallStatus: "normal" | "heavy" | "critical";
-  congestionIndex: number; // 0 to 100
+  stats: { warnings: number; roadworks: number; closures: number };
   alerts: TrafficAlert[];
+  dataSource?: string;
 }
 
-const REGION_TRAFFIC_DATA: Record<string, RegionData> = {
-  brandenburg: {
-    city: "Potsdam & Brandenburg",
-    zip: "Land Brandenburg",
-    overallStatus: "heavy",
-    congestionIndex: 42,
-    alerts: [
-      {
-        id: "tr-bb-1",
-        road: "A115",
-        type: "stau",
-        severity: "moderate",
-        title: "Überlastung im Berufsverkehr",
-        location: "Potsdam-Babelsberg Richtung Dreieck Funkturm",
-        description: "Hohes Verkehrsaufkommen im Baustellenbereich. Zeitverlust ca. 12 Minuten.",
-        fullText: "Autobahn GmbH des Bundes: Dichter Berufsverkehr in Richtung Berlin. Im verengten Baustellenbereich zwischen Anschlussstelle Potsdam-Babelsberg und Nuthetal kommt es zu stockendem Verkehr mit Zeitverlusten von etwa 12 bis 15 Minuten. Umfahrung über Nuthestraße L74 möglich.",
-        url: "https://www.autobahn.de/betrieb-verkehr/verkehrsmeldungen",
-        delayMinutes: 12
-      },
-      {
-        id: "tr-bb-2",
-        road: "A10",
-        type: "baustelle",
-        severity: "minor",
-        title: "Spurverengung durch Brückenarbeiten",
-        location: "Nördlicher Berliner Ring, Nahe AS Birkenwerder",
-        description: "Bauarbeiten am Mittelstreifen. Fahrbahnen verengt, Tempolimit 80 km/h.",
-        fullText: "Autobahn GmbH des Bundes: Sanierungsarbeiten an der Überführung. Der linke Fahrstreifen ist in beiden Richtungen leicht verengt. Es gilt ein reduziertes Tempolimit von 80 km/h. Der Verkehr fließt weitgehend ungehindert.",
-        url: "https://www.autobahn.de/betrieb-verkehr/verkehrsmeldungen",
-        delayMinutes: 5
-      },
-      {
-        id: "tr-bb-3",
-        road: "S7",
-        type: "bahn-verspaetung",
-        severity: "critical",
-        title: "Weichenstörung & Teilausfall",
-        location: "S-Bahn Potsdam Hauptbahnhof bis Griebnitzsee",
-        description: "Aufgrund einer Weichenstörung verkehren die Züge unregelmäßig. Schienenersatzverkehr ist eingerichtet.",
-        fullText: "S-Bahn Berlin GmbH: Nach einer Weichenstörung im Raum Potsdam Hbf kommt es auf der Linie S7 zu Ausfällen und Verzögerungen von bis zu 20 Minuten. Ein Schienenersatzverkehr mit Bussen ist zwischen Potsdam Hbf und Wannsee eingerichtet.",
-        url: "https://sbahn.berlin/fahren/bauen-stoerungen/",
-        delayMinutes: 20
-      },
-      {
-        id: "tr-bb-4",
-        road: "B1",
-        type: "baustelle",
-        severity: "moderate",
-        title: "Vollsperrung wegen Fahrbahnerneuerung",
-        location: "Ortsdurchfahrt Geltow",
-        description: "Asphaltierungsarbeiten. Eine Umleitung über Werder (Havel) ist ausgeschildert.",
-        fullText: "Landesbetrieb Straßenwesen Brandenburg: Grundhafte Erneuerung der Fahrbahndecke in der Ortsdurchfahrt Geltow. Vollständige Sperrung des Durchgangsverkehrs. Die Umleitung erfolgt großräumig über die B1 / Werder (Havel) und A10.",
-        url: "https://www.mobil-potsdam.de/de/verkehrsmeldungen/verkehrslage/",
-        delayMinutes: 15
-      }
-    ]
-  },
-  berlin: {
-    city: "Berlin Stadtgebiet",
-    zip: "Zentrum",
-    overallStatus: "critical",
-    congestionIndex: 78,
-    alerts: [
-      {
-        id: "tr-be-1",
-        road: "A100",
-        type: "stau",
-        severity: "critical",
-        title: "Unfall im Tunnel Ortsteil Britz",
-        location: "Stadtring Berlin, Richtung Neukölln",
-        description: "Zwei Fahrstreifen blockiert nach Auffahrunfall. Rettungskräfte vor Ort. Rückstau bis Tempelhof.",
-        fullText: "Verkehrsinformationszentrale VIZ Berlin: Schwere Behinderung auf der A100 Stadtring Richtung Neukölln im Tunnel Britz. Zwei von drei Spuren nach einem Verkehrsunfall gesperrt. Polizei und Rettungsdienst arbeiten vor Ort. Rückstau beträgt derzeit 4.5 km.",
-        url: "https://daten.berlin.de/datensaetze/baustellen-sperrungen-und-sonstige-storungen-von-besonderem-verkehrlichem-interesse",
-        delayMinutes: 28
-      },
-      {
-        id: "tr-be-2",
-        road: "U6",
-        type: "bahn-verspaetung",
-        severity: "moderate",
-        title: "Signalstörung",
-        location: "Alt-Tegel Richtung Friedrichstraße",
-        description: "Verzögerungen im Betriebsablauf der U-Bahn-Linie U6. Bitte Durchsagen beachten.",
-        fullText: "BVG Berliner Verkehrsbetriebe: Wegen einer Signalstörung im Bahnhof Kurt-Schumacher-Platz verkehrt die U6 in unregelmäßigen Abständen. Rechnen Sie mit längeren Wartezeiten an den Bahnsteigen.",
-        url: "https://www.bvg.de",
-        delayMinutes: 8
-      },
-      {
-        id: "tr-be-3",
-        road: "B96",
-        type: "sperrung",
-        severity: "critical",
-        title: "Vollsperrung wegen Großdemonstration",
-        location: "Straße des 17. Juni, zwischen Ernst-Reuter-Platz und Brandenburger Tor",
-        description: "Polizeiliche Sperrungen im gesamten Regierungsviertel. Weiträumig umfahren.",
-        fullText: "Polizei Berlin: Aufgrund einer angemeldeten Großdemonstration im Regierungsviertel ist die Straße des 17. Juni sowie Teile der B96 voll gesperrt. Autofahrer werden gebeten, den Bereich weiträumig über den Stadtring A100 zu umfahren.",
-        url: "https://daten.berlin.de/datensaetze/baustellen-sperrungen-und-sonstige-storungen-von-besonderem-verkehrlichem-interesse",
-        delayMinutes: 35
-      }
-    ]
-  },
-  potsdam: {
-    city: "Potsdam",
-    zip: "Zentrum / Babelsberg",
-    overallStatus: "normal",
-    congestionIndex: 28,
-    alerts: [
-      {
-        id: "tr-pt-1",
-        road: "B1",
-        type: "baustelle",
-        severity: "moderate",
-        title: "Einengung Zeppelinstraße",
-        location: "Breite Straße bis Schopenhauerstraße",
-        description: "Sperrung einer Fahrspur wegen dringender Leitungsarbeiten. Zähflüssiger Berufsverkehr.",
-        fullText: "Mobil Potsdam: In der Zeppelinstraße stehen wegen dringender Reparaturarbeiten an den Versorgungsleitungen nur verengte Fahrspuren zur Verfügung. Im morgendlichen und abendlichen Berufsverkehr kommt es zu Rückstau.",
-        url: "https://www.mobil-potsdam.de/de/verkehrsmeldungen/verkehrslage/",
-        delayMinutes: 8
-      },
-      {
-        id: "tr-pt-2",
-        road: "L74",
-        type: "stau",
-        severity: "minor",
-        title: "Berufsverkehr Nuthestraße",
-        location: "Auffahrt Horstweg Richtung Zentrum",
-        description: "Erhöhtes Verkehrsaufkommen im Kreuzungsbereich.",
-        fullText: "Mobil Potsdam: Zähflüssiger Verkehr auf der L74 Nuthestraße im Einfädelungsbereich Horstweg. Die Verzögerung beträgt aktuell etwa 4 Minuten.",
-        url: "https://www.mobil-potsdam.de/de/verkehrsmeldungen/verkehrslage/",
-        delayMinutes: 4
-      }
-    ]
-  },
-  rostock: {
-    city: "Rostock & Warnemünde",
-    zip: "Ostseeküste",
-    overallStatus: "heavy",
-    congestionIndex: 48,
-    alerts: [
-      {
-        id: "tr-ro-1",
-        road: "B103",
-        type: "stau",
-        severity: "moderate",
-        title: "Stau Am Strande / Warnowufer",
-        location: "Stadthafen Richtung Gehlsdorf",
-        description: "Verkehrsüberlastung zu Stoßzeiten. Zeitverlust ca. 14 Minuten.",
-        fullText: "Verkehrsmanagement Rostock: Hohe Auslastung der B103 im Bereich Stadthafen. Zähflüssiger Verkehr in Richtung Warnowufer.",
-        url: "https://www.rostock.de/baustellen",
-        delayMinutes: 14
-      },
-      {
-        id: "tr-ro-2",
-        road: "Warnowtunnel",
-        type: "baustelle",
-        severity: "minor",
-        title: "Wartungsarbeiten an Mautstation",
-        location: "Warnowquerung, Richtung Krummendorf",
-        description: "Wartung der elektronischen Mautschranke in Spur 3. Weichen Sie auf Nebenspuren aus.",
-        fullText: "Warnowquerung GmbH: Routinearbeiten an der automatischen Schrankenanlage Spur 3. Bitte nutzen Sie die Spuren 1, 2 und 4.",
-        url: "https://www.warnowquerung.de",
-        delayMinutes: 5
-      }
-    ]
-  }
+const EMPTY_REGION: RegionData = {
+  city: "",
+  roads: [],
+  overallStatus: "normal",
+  stats: { warnings: 0, roadworks: 0, closures: 0 },
+  alerts: []
 };
 
-// Helper to build pinpoint Google Maps search query with live traffic layer
-function getGoogleMapsQuery(alert: TrafficAlert): string {
-  const road = alert.road ? alert.road.trim() : "";
-  let loc = alert.location ? alert.location.trim() : "";
-
-  // Strip generic status/warning words if they slipped into location
-  loc = loc.replace(/\b(WARNING|ROADWORKS|UNFALL|SPERRUNG|BAUSTELLE|ACCIDENT|CONSTRUCTION)\b/gi, "").trim();
-
-  let rawQuery = "";
-
-  if (loc) {
-    if (road && loc.toLowerCase().includes(road.toLowerCase())) {
-      rawQuery = loc;
-    } else if (road) {
-      rawQuery = `${road} ${loc}`;
-    } else {
-      rawQuery = loc;
-    }
-  } else {
-    rawQuery = road;
-  }
-
-  // Ensure city name is present for municipal street searches
-  if (alert.id.includes("potsdam") && !rawQuery.toLowerCase().includes("potsdam")) {
-    rawQuery += " Potsdam";
-  }
-
-  // If query is still just e.g. "A10" without location info
-  if (!loc || rawQuery.toUpperCase() === road.toUpperCase()) {
-    const textToSearch = `${alert.title} ${alert.fullText || alert.description}`;
-    const junctionMatch = textToSearch.match(/(AS\s+[A-Za-zÄöüß\s\-]+|Anschlussstelle\s+[A-Za-zÄöüß\s\-]+|Dreieck\s+[A-Za-zÄöüß\s\-]+|Kreuz\s+[A-Za-zÄöüß\s\-]+)/i);
-    if (junctionMatch) {
-      const junction = junctionMatch[1].replace(/(\,.*|\..*|zwischen.*|und.*|richtung.*)/i, "").trim();
-      rawQuery = `${road} ${junction}`.trim();
-    } else {
-      const cleanTitle = alert.title.replace(/\b(WARNING|ROADWORKS|Dauerbaustelle|Stoßzeiten-Stau|Stau|Sperrung)\b/gi, "").trim();
-      rawQuery = `${road} ${cleanTitle}`.trim();
-    }
-  }
-
-  // Replace arrows or double spaces
-  rawQuery = rawQuery.replace(/→/g, " ").replace(/\s+/g, " ").trim();
-
-  return rawQuery || road || "Verkehrsnetz Potsdam";
-}
+const REGION_LABELS: Record<string, string> = {
+  brandenburg: "Brandenburg",
+  berlin: "Berlin",
+  potsdam: "Potsdam",
+  rostock: "Rostock"
+};
 
 export default function TrafficWidget() {
   const [selectedRegion, setSelectedRegion] = useState<string>(() => {
     const saved = localStorage.getItem("traffic_selected_region");
-    return saved && REGION_TRAFFIC_DATA[saved] ? saved : "brandenburg";
+    return saved && REGION_LABELS[saved] ? saved : "brandenburg";
   });
-  const [trafficData, setTrafficData] = useState<(RegionData & { isRealApi?: boolean; lastSync?: string }) | null>(() => {
-    const saved = localStorage.getItem("traffic_selected_region");
-    const key = saved && REGION_TRAFFIC_DATA[saved] ? saved : "brandenburg";
-    return REGION_TRAFFIC_DATA[key] || REGION_TRAFFIC_DATA["brandenburg"];
-  });
+  const [trafficData, setTrafficData] = useState<(RegionData & { isRealApi?: boolean; lastSync?: string }) | null>(null);
+  const [hasError, setHasError] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
@@ -278,15 +81,18 @@ export default function TrafficWidget() {
   const [countdown, setCountdown] = useState<number>(600); // 10 minutes auto-sync interval
   const [isLivePulse, setIsLivePulse] = useState<boolean>(false);
 
-  // Switch region handler with instant optimistic update
+  // Meldungsübersicht-Chips dienen gleichzeitig als Typ-Filter für die Liste
+  const [typeFilter, setTypeFilter] = useState<TrafficAlert["type"] | null>(null);
+  const toggleTypeFilter = (type: TrafficAlert["type"]) => {
+    setTypeFilter((prev) => (prev === type ? null : type));
+  };
+
+  // Switch region handler
   const handleSelectRegion = (regionKey: string) => {
-    if (regionKey === selectedRegion && trafficData) return;
+    if (regionKey === selectedRegion) return;
     setSelectedRegion(regionKey);
+    setTypeFilter(null);
     localStorage.setItem("traffic_selected_region", regionKey);
-    // Instant optimistic update with local dataset
-    if (REGION_TRAFFIC_DATA[regionKey]) {
-      setTrafficData(REGION_TRAFFIC_DATA[regionKey]);
-    }
     fetchTraffic(regionKey, false);
   };
 
@@ -308,6 +114,7 @@ export default function TrafficWidget() {
       if (res.ok) {
         const data = await res.json();
         setTrafficData(data);
+        setHasError(false);
         if (data.lastSync) {
           setLastUpdated(data.lastSync);
         }
@@ -315,10 +122,8 @@ export default function TrafficWidget() {
         throw new Error("Traffic API error");
       }
     } catch (err) {
-      console.warn("Traffic fetch failed, falling back to local dataset:", err);
-      if (REGION_TRAFFIC_DATA[regionKey]) {
-        setTrafficData(REGION_TRAFFIC_DATA[regionKey]);
-      }
+      console.warn("Traffic fetch failed:", err);
+      setHasError(true);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -349,7 +154,7 @@ export default function TrafficWidget() {
     setCountdown(600);
   };
 
-  const region = trafficData || REGION_TRAFFIC_DATA[selectedRegion] || REGION_TRAFFIC_DATA["brandenburg"];
+  const region = trafficData || { ...EMPTY_REGION, city: REGION_LABELS[selectedRegion] || "" };
 
   // Helper to determine status style
   const getStatusColor = (status: "normal" | "heavy" | "critical") => {
@@ -379,6 +184,7 @@ export default function TrafficWidget() {
   };
 
   const currentStatus = getStatusColor(region.overallStatus);
+  const filteredAlerts = typeFilter ? region.alerts.filter((a) => a.type === typeFilter) : region.alerts;
 
   const getAlertIcon = (type: TrafficAlert["type"]) => {
     switch (type) {
@@ -388,8 +194,6 @@ export default function TrafficWidget() {
         return <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />;
       case "baustelle":
         return <Construction className="w-3.5 h-3.5 text-amber-400" />;
-      case "bahn-verspaetung":
-        return <Clock className="w-3.5 h-3.5 text-indigo-400" />;
     }
   };
 
@@ -425,27 +229,20 @@ export default function TrafficWidget() {
               <h3 className="font-bold text-slate-200 text-sm font-sans tracking-tight">
                 {stripEmojis("Echtzeit-Verkehrsradar")}
               </h3>
-              {trafficData?.isRealApi ? (
-                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-1" title={trafficData.dataSource || "Echtzeit Autobahn GmbH & Kommunale Verkehrszentralen"}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  STADT- & AUTOBAHN-RADAR
-                </span>
-              ) : (
-                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-1" title="Offizielle Verkehrszentralen & Kommunen">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  ECHTZEIT-VERKEHRSNETZ
-                </span>
-              )}
+              <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-1" title="Echtzeit Autobahn GmbH des Bundes">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                AUTOBAHN-RADAR
+              </span>
             </div>
             <p className="text-[10px] text-slate-400 font-mono mt-0.5" title={trafficData?.dataSource}>
-              {trafficData?.dataSource || "Autobahn GmbH, Mobil Potsdam, VIZ Berlin & VMZ Rostock"}
+              {trafficData?.dataSource || "Autobahn GmbH des Bundes (verkehr.autobahn.de)"}
             </p>
           </div>
         </div>
 
         {/* Region selector pills - compact height */}
         <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded-xl border border-slate-800 self-start sm:self-center shrink-0">
-          {Object.entries(REGION_TRAFFIC_DATA).map(([key]) => (
+          {Object.entries(REGION_LABELS).map(([key, label]) => (
             <button
               key={key}
               id={`traffic-region-${key}`}
@@ -457,7 +254,7 @@ export default function TrafficWidget() {
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              {key === "brandenburg" ? "Brandenburg" : key === "berlin" ? "Berlin" : key === "potsdam" ? "Potsdam" : "Rostock"}
+              {label}
             </button>
           ))}
         </div>
@@ -487,36 +284,62 @@ export default function TrafficWidget() {
             </div>
           </div>
 
-          {/* Congestion Progress bar with Dynamic Color Scheme: Grün <30%, Gelb <70%, Rot >70% */}
+          {/* Meldungsübersicht: echte Zähler statt erfundenem Auslastungs-Prozentwert */}
           <div className="bg-slate-950/40 p-3 rounded-xl border border-slate-800/60 flex flex-col gap-2">
-            <div className="flex items-center justify-between text-[10px] font-mono">
-              <span className="text-slate-400 flex items-center gap-1.5 font-medium">
-                <Gauge className="w-3.5 h-3.5 text-slate-500" />
-                Auslastungs-Index
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
+                Meldungsübersicht
               </span>
-              <span className={`font-bold ${
-                region.congestionIndex >= 70 
-                  ? "text-rose-400" 
-                  : region.congestionIndex >= 30 
-                    ? "text-amber-400" 
-                    : "text-emerald-400"
-              }`}>
-                {region.congestionIndex}%
-              </span>
+              {typeFilter && (
+                <button
+                  type="button"
+                  onClick={() => setTypeFilter(null)}
+                  className="text-[9px] text-indigo-400 hover:text-indigo-300 font-mono cursor-pointer"
+                >
+                  Filter zurücksetzen
+                </button>
+              )}
             </div>
-            <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800 shadow-inner">
-              <motion.div 
-                initial={{ width: 0 }}
-                animate={{ width: `${region.congestionIndex}%` }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className={`h-full rounded-full ${
-                  region.congestionIndex >= 70 
-                    ? "bg-gradient-to-r from-rose-500 to-red-600" 
-                    : region.congestionIndex >= 30 
-                      ? "bg-gradient-to-r from-amber-400 to-yellow-500" 
-                      : "bg-gradient-to-r from-emerald-500 to-teal-400"
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => toggleTypeFilter("stau")}
+                disabled={region.stats.warnings === 0}
+                className={`flex flex-col items-center gap-1 bg-slate-900/60 border rounded-lg py-1.5 transition-all cursor-pointer disabled:cursor-default disabled:opacity-40 ${
+                  typeFilter === "stau" ? "border-amber-400 ring-1 ring-amber-400/50" : "border-amber-500/20 hover:border-amber-400/50"
                 }`}
-              />
+                title="Nach Stauwarnungen filtern"
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-sm font-bold text-amber-400 leading-none">{region.stats.warnings}</span>
+                <span className="text-[9px] text-slate-500 font-mono">Stau</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleTypeFilter("baustelle")}
+                disabled={region.stats.roadworks === 0}
+                className={`flex flex-col items-center gap-1 bg-slate-900/60 border rounded-lg py-1.5 transition-all cursor-pointer disabled:cursor-default disabled:opacity-40 ${
+                  typeFilter === "baustelle" ? "border-amber-400 ring-1 ring-amber-400/50" : "border-amber-500/20 hover:border-amber-400/50"
+                }`}
+                title="Nach Baustellen filtern"
+              >
+                <Construction className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-sm font-bold text-amber-400 leading-none">{region.stats.roadworks}</span>
+                <span className="text-[9px] text-slate-500 font-mono">Baustellen</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleTypeFilter("sperrung")}
+                disabled={region.stats.closures === 0}
+                className={`flex flex-col items-center gap-1 bg-slate-900/60 border rounded-lg py-1.5 transition-all cursor-pointer disabled:cursor-default disabled:opacity-40 ${
+                  typeFilter === "sperrung" ? "border-rose-400 ring-1 ring-rose-400/50" : "border-rose-500/20 hover:border-rose-400/50"
+                }`}
+                title="Nach Sperrungen filtern"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                <span className="text-sm font-bold text-rose-400 leading-none">{region.stats.closures}</span>
+                <span className="text-[9px] text-slate-500 font-mono">Sperrungen</span>
+              </button>
             </div>
           </div>
 
@@ -557,33 +380,51 @@ export default function TrafficWidget() {
         <div className="lg:col-span-7 flex flex-col gap-1.5 min-w-0">
           <div className="flex items-center justify-between px-1">
             <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
-              Meldungen ({region.alerts.length})
+              Meldungen ({filteredAlerts.length}{typeFilter ? ` / ${region.alerts.length}` : ""})
             </span>
             <span className="text-[10px] font-mono text-slate-500">
               Klick für Details
             </span>
           </div>
-          
+
           <div className="max-h-[160px] sm:max-h-[175px] overflow-y-auto space-y-1.5 pr-1 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-slate-950/50">
             <AnimatePresence mode="popLayout">
-              {region.alerts.length === 0 ? (
-                <motion.div 
+              {region.alerts.length === 0 && hasError ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-6 gap-1.5 text-slate-400 bg-slate-950/30 border border-slate-800/60 rounded-xl px-4 text-center"
+                >
+                  <AlertTriangle className="w-5 h-5 text-amber-400" />
+                  <span className="text-xs font-semibold text-slate-200">Daten momentan nicht verfügbar</span>
+                  <span className="text-[11px] text-slate-400 max-w-xs">Die Autobahn-API war gerade nicht erreichbar. Versuch's gleich nochmal.</span>
+                </motion.div>
+              ) : region.alerts.length === 0 ? (
+                <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="flex flex-col items-center justify-center py-6 gap-1.5 text-slate-400 bg-slate-950/30 border border-slate-800/60 rounded-xl px-4 text-center"
                 >
                   <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                   <span className="text-xs font-semibold text-slate-200">Freier Verkehrsfluss</span>
-                  <span className="text-[11px] text-slate-400 max-w-xs">Keine akuten Stau- oder Baustellenmeldungen auf den Verkehrswegen der Region.</span>
+                  <span className="text-[11px] text-slate-400 max-w-xs">Keine akuten Stau- oder Baustellenmeldungen auf den Autobahnen der Region.</span>
+                </motion.div>
+              ) : filteredAlerts.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-6 gap-1.5 text-slate-400 bg-slate-950/30 border border-slate-800/60 rounded-xl px-4 text-center"
+                >
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  <span className="text-xs font-semibold text-slate-200">Keine Treffer für diesen Filter</span>
+                  <button type="button" onClick={() => setTypeFilter(null)} className="text-[11px] text-indigo-400 hover:text-indigo-300 font-mono cursor-pointer">
+                    Filter zurücksetzen
+                  </button>
                 </motion.div>
               ) : (
-                region.alerts.map((alert, index) => (
-                  <motion.div
+                filteredAlerts.map((alert) => (
+                  <div
                     key={alert.id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ delay: index * 0.04, duration: 0.2 }}
                     id={`traffic-alert-${alert.id}`}
                     onClick={() => setSelectedAlert(alert)}
                     className="group relative flex items-center justify-between gap-3 w-full px-3 py-2 bg-slate-950/40 hover:bg-slate-950/80 border border-slate-850 hover:border-indigo-500/40 rounded-xl transition-all cursor-pointer shadow-sm"
@@ -650,22 +491,15 @@ export default function TrafficWidget() {
                       );
                     })()}
 
-                    {/* Right Delay Badge: flex-shrink-0, relative, clean spacing */}
+                    {/* Right Severity Badge: flex-shrink-0, relative, clean spacing */}
                     <div className="flex items-center gap-1.5 shrink-0 flex-shrink-0 relative">
-                      {alert.delayMinutes > 0 ? (
-                        <div className="flex items-center gap-1 bg-rose-500/15 border border-rose-500/25 px-2 py-0.5 rounded-lg text-rose-400 text-[10px] font-mono font-bold whitespace-nowrap">
-                          <Clock className="w-2.5 h-2.5" />
-                          <span>+{alert.delayMinutes}m</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg text-emerald-400 text-[10px] font-mono font-medium whitespace-nowrap">
-                          <span>0m</span>
-                        </div>
-                      )}
-                      
+                      <div className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold whitespace-nowrap ${getSeverityBadgeClass(alert.severity)}`}>
+                        {alert.type === "stau" ? "Stau" : alert.type === "baustelle" ? "Baustelle" : "Sperrung"}
+                      </div>
+
                       <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-indigo-400 transition-colors" />
                     </div>
-                  </motion.div>
+                  </div>
                 ))
               )}
             </AnimatePresence>
@@ -698,14 +532,8 @@ export default function TrafficWidget() {
                     {selectedAlert.road}
                   </span>
                   <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded-lg uppercase tracking-wider ${getSeverityBadgeClass(selectedAlert.severity)}`}>
-                    {selectedAlert.type === "stau" ? "Stau" : selectedAlert.type === "sperrung" ? "Sperrung" : selectedAlert.type === "baustelle" ? "Baustelle" : "Verzögerung"}
+                    {selectedAlert.type === "stau" ? "Stau" : selectedAlert.type === "sperrung" ? "Sperrung" : "Baustelle"}
                   </span>
-                  {selectedAlert.delayMinutes > 0 && (
-                    <span className="flex items-center gap-1 text-[11px] font-mono font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-lg">
-                      <Clock className="w-3 h-3 animate-pulse" />
-                      +{selectedAlert.delayMinutes} Min.
-                    </span>
-                  )}
                 </div>
                 <button
                   type="button"
@@ -741,7 +569,7 @@ export default function TrafficWidget() {
               {/* Action Footer */}
               <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-800 shrink-0 flex-wrap sm:flex-nowrap">
                 <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(getGoogleMapsQuery(selectedAlert))}&layer=t`}
+                  href={selectedAlert.url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedAlert.road)}&layer=t`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/20 transition-all cursor-pointer active:scale-95 whitespace-nowrap"
