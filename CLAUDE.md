@@ -23,6 +23,15 @@ Studio gebaut und von dort exportiert.
 - **Package Manager:** `bun.lock` liegt im Repo (aus dem AI-Studio-Export); Vercel erkennt
   daran automatisch Bun für den Install-Schritt. Der Build selbst läuft über den in
   `vercel.json` gesetzten `buildCommand` (`npm run build:web`), unabhängig vom Install-Tool.
+- **Firebase (optional, nur Markt-Favoriten):** Eigenes Firebase-Projekt (nicht dasselbe wie
+  Vane/Aura), Config in `firebase-applet-config.json` (öffentlich, kein Secret - wie bei den
+  anderen beiden Apps). `src/lib/firebase.ts` bietet Google-Login + Firestore-Sync für die 5
+  Markt-Favoriten im `StockTicker`-Widget. Kein Login-Zwang: ohne Konto bleibt alles wie
+  bisher rein lokal in `localStorage`; mit Google-Login werden die Favoriten zusätzlich unter
+  `users/{userId}.marketFavorites` in Firestore gespiegelt (geräteübergreifend). Beim ersten
+  Login werden vorhandene lokale Favoriten einmalig hochgeladen, danach ist die Cloud die
+  Quelle der Wahrheit (Live-Subscribe). `firestore.rules`: nur der eigene User darf sein
+  Dokument lesen/schreiben.
 
 ## Deployment
 
