@@ -8,7 +8,7 @@ import { POLIZEI_BRANDENBURG_CA_CHAIN } from "./caCerts.js";
 
 // ----------------------------------------------------
 // Framework-neutral route table.
-// Consumed by server.ts (Express, local/Cloud Run) and netlify/functions/api.ts (Netlify Functions).
+// Consumed by server.ts (Express, local dev) and api/index.ts (Vercel Serverless Function).
 // ----------------------------------------------------
 export interface ApiRequest {
   query: Record<string, any>;
