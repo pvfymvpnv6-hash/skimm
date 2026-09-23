@@ -1051,234 +1051,143 @@ get("/api/weather", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 4. API: Traffic Radar (`/api/traffic`)
+// 4. API: Traffic Radar (`/api/traffic`) - LIVE data from the official,
+// free Autobahn GmbH API (verkehr.autobahn.de). This only covers federal
+// Autobahnen, not city streets or public transit, and it has no numeric
+// delay-in-minutes or congestion-percentage field - neither is fabricated
+// here; the region status/stats below are derived from real counts.
 // ----------------------------------------------------
-const TRAFFIC_DATA_REGIONS: Record<string, {
-  city: string;
-  zip: string;
-  overallStatus: "normal" | "heavy" | "critical";
-  congestionIndex: number;
-  dataSource: string;
-  alerts: Array<{
+const TRAFFIC_REGION_ROADS: Record<string, { label: string; roads: string[] }> = {
+  brandenburg: { label: "Potsdam & Brandenburg", roads: ["A10", "A9", "A12", "A13", "A14"] },
+  berlin: { label: "Berlin Stadtgebiet", roads: ["A100", "A111", "A113", "A115"] },
+  potsdam: { label: "Potsdam", roads: ["A10", "A115"] },
+  rostock: { label: "Rostock & Warnemünde", roads: ["A19", "A20", "A24"] }
+};
+
+interface AutobahnRoadEvent {
+  identifier?: string;
+  title?: string;
+  subtitle?: string;
+  description?: string[];
+  isBlocked?: string;
+  coordinate?: { lat?: string; long?: string };
+}
+
+type AutobahnService = "warning" | "roadworks" | "closure";
+
+async function fetchAutobahnService(roadId: string, service: AutobahnService): Promise<AutobahnRoadEvent[]> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch(
+      `https://verkehr.autobahn.de/o/autobahn/${encodeURIComponent(roadId)}/services/${service}`,
+      { signal: controller.signal, headers: { Accept: "application/json" } }
+    );
+    clearTimeout(timeoutId);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = data?.[service];
+    return Array.isArray(items) ? items : [];
+  } catch (e) {
+    clearTimeout(timeoutId);
+    return [];
+  }
+}
+
+const trafficRegionCache = new Map<string, { data: unknown; timestamp: number }>();
+const TRAFFIC_CACHE_TTL = 3 * 60 * 1000;
+
+get("/api/traffic", async (req, res) => {
+  const rawRegion = ((req.query.region as string) || "brandenburg").toLowerCase().trim();
+  const regionKey = TRAFFIC_REGION_ROADS[rawRegion] ? rawRegion : "brandenburg";
+  const region = TRAFFIC_REGION_ROADS[regionKey];
+
+  const cached = trafficRegionCache.get(regionKey);
+  if (cached && Date.now() - cached.timestamp < TRAFFIC_CACHE_TTL) {
+    res.json(cached.data);
+    return;
+  }
+
+  const services: AutobahnService[] = ["warning", "roadworks", "closure"];
+  const results = await Promise.allSettled(
+    region.roads.flatMap((roadId) =>
+      services.map((service) =>
+        fetchAutobahnService(roadId, service).then((items) => ({ roadId, service, items }))
+      )
+    )
+  );
+
+  const severityOrder: Record<"critical" | "moderate" | "minor", number> = { critical: 0, moderate: 1, minor: 2 };
+  const alerts: Array<{
     id: string;
     road: string;
-    type: "stau" | "baustelle" | "unfall" | "sperrung" | "bahn-verspaetung";
+    type: "stau" | "baustelle" | "sperrung";
     severity: "minor" | "moderate" | "critical";
     title: string;
     location: string;
     description: string;
     fullText: string;
     url: string;
-    delayMinutes: number;
-  }>;
-}> = {
-  brandenburg: {
-    city: "Potsdam & Brandenburg",
-    zip: "Land Brandenburg",
-    overallStatus: "heavy",
-    congestionIndex: 42,
-    dataSource: "Autobahn GmbH & Landesbetrieb Straßenwesen Brandenburg",
-    alerts: [
-      {
-        id: "tr-bb-1",
-        road: "A115",
-        type: "stau",
-        severity: "moderate",
-        title: "Überlastung im Berufsverkehr",
-        location: "Potsdam-Babelsberg → Dreieck Funkturm",
-        description: "Hohes Verkehrsaufkommen im Baustellenbereich. Zeitverlust ca. 12 Minuten.",
-        fullText: "Autobahn GmbH des Bundes: Dichter Berufsverkehr in Richtung Berlin. Im verengten Baustellenbereich zwischen Anschlussstelle Potsdam-Babelsberg und Nuthetal kommt es zu stockendem Verkehr mit Zeitverlusten von etwa 12 bis 15 Minuten. Umfahrung über Nuthestraße L74 empfohlen.",
-        url: "https://www.autobahn.de/betrieb-verkehr/verkehrsmeldungen",
-        delayMinutes: 12
-      },
-      {
-        id: "tr-bb-2",
-        road: "A10",
-        type: "baustelle",
-        severity: "minor",
-        title: "Spurverengung durch Brückenarbeiten",
-        location: "Nördlicher Berliner Ring, AS Birkenwerder",
-        description: "Bauarbeiten am Mittelstreifen. Fahrbahnen verengt, Tempolimit 80 km/h.",
-        fullText: "Autobahn GmbH des Bundes: Sanierungsarbeiten an der Überführung. Der linke Fahrstreifen ist in beiden Richtungen leicht verengt. Es gilt ein reduziertes Tempolimit von 80 km/h.",
-        url: "https://www.autobahn.de/betrieb-verkehr/verkehrsmeldungen",
-        delayMinutes: 5
-      },
-      {
-        id: "tr-bb-3",
-        road: "S7",
-        type: "bahn-verspaetung",
-        severity: "critical",
-        title: "Weichenstörung & Teilausfall",
-        location: "S-Bahn Potsdam Hauptbahnhof bis Griebnitzsee",
-        description: "Aufgrund einer Weichenstörung verkehren die Züge unregelmäßig. Schienenersatzverkehr ist eingerichtet.",
-        fullText: "S-Bahn Berlin GmbH: Nach einer Weichenstörung im Raum Potsdam Hbf kommt es auf der Linie S7 zu Ausfällen und Verzögerungen von bis zu 20 Minuten. Ein Schienenersatzverkehr mit Bussen ist zwischen Potsdam Hbf und Wannsee eingerichtet.",
-        url: "https://sbahn.berlin/fahren/bauen-stoerungen/",
-        delayMinutes: 20
-      },
-      {
-        id: "tr-bb-4",
-        road: "B1",
-        type: "baustelle",
-        severity: "moderate",
-        title: "Vollsperrung wegen Fahrbahnerneuerung",
-        location: "Ortsdurchfahrt Geltow",
-        description: "Asphaltierungsarbeiten. Eine Umleitung über Werder (Havel) ist ausgeschildert.",
-        fullText: "Landesbetrieb Straßenwesen Brandenburg: Grundhafte Erneuerung der Fahrbahndecke in der Ortsdurchfahrt Geltow. Vollständige Sperrung des Durchgangsverkehrs. Die Umleitung erfolgt großräumig über die B1 / Werder (Havel) und A10.",
-        url: "https://www.mobil-potsdam.de/de/verkehrsmeldungen/verkehrslage/",
-        delayMinutes: 15
-      }
-    ]
-  },
-  berlin: {
-    city: "Berlin Stadtgebiet",
-    zip: "Zentrum & Stadtring",
-    overallStatus: "critical",
-    congestionIndex: 78,
-    dataSource: "VIZ Berlin & BVG Berliner Verkehrsbetriebe",
-    alerts: [
-      {
-        id: "tr-be-1",
-        road: "A100",
-        type: "stau",
-        severity: "critical",
-        title: "Unfall im Tunnel Ortsteil Britz",
-        location: "Stadtring Berlin, Richtung Neukölln",
-        description: "Zwei Fahrstreifen blockiert nach Auffahrunfall. Rettungskräfte vor Ort. Rückstau bis Tempelhof.",
-        fullText: "Verkehrsinformationszentrale VIZ Berlin: Schwere Behinderung auf der A100 Stadtring Richtung Neukölln im Tunnel Britz. Zwei von drei Spuren nach einem Verkehrsunfall gesperrt. Polizei und Rettungsdienst arbeiten vor Ort. Rückstau beträgt derzeit 4.5 km.",
-        url: "https://daten.berlin.de/datensaetze/baustellen-sperrungen-und-sonstige-storungen-von-besonderem-verkehrlichem-interesse",
-        delayMinutes: 28
-      },
-      {
-        id: "tr-be-2",
-        road: "U6",
-        type: "bahn-verspaetung",
-        severity: "moderate",
-        title: "Signalstörung im Berufsverkehr",
-        location: "Alt-Tegel Richtung Friedrichstraße",
-        description: "Verzögerungen im Betriebsablauf der U-Bahn-Linie U6. Bitte Durchsagen beachten.",
-        fullText: "BVG Berliner Verkehrsbetriebe: Wegen einer Signalstörung im Bahnhof Kurt-Schumacher-Platz verkehrt die U6 in unregelmäßigen Abständen. Rechnen Sie mit längeren Wartezeiten an den Bahnsteigen.",
-        url: "https://www.bvg.de",
-        delayMinutes: 8
-      },
-      {
-        id: "tr-be-3",
-        road: "B96",
-        type: "sperrung",
-        severity: "critical",
-        title: "Vollsperrung wegen Großdemonstration",
-        location: "Straße des 17. Juni, zwischen Ernst-Reuter-Platz und Brandenburger Tor",
-        description: "Polizeiliche Sperrungen im gesamten Regierungsviertel. Weiträumig umfahren.",
-        fullText: "Polizei Berlin: Aufgrund einer angemeldeten Großdemonstration im Regierungsviertel ist die Straße des 17. Juni sowie Teile der B96 voll gesperrt. Autofahrer werden gebeten, den Bereich weiträumig über den Stadtring A100 zu umfahren.",
-        url: "https://daten.berlin.de/datensaetze/baustellen-sperrungen-und-sonstige-storungen-von-besonderem-verkehrlichem-interesse",
-        delayMinutes: 35
-      }
-    ]
-  },
-  potsdam: {
-    city: "Potsdam",
-    zip: "Zentrum / Babelsberg",
-    overallStatus: "normal",
-    congestionIndex: 28,
-    dataSource: "Mobil Potsdam & Landeshauptstadt Potsdam",
-    alerts: [
-      {
-        id: "tr-pt-1",
-        road: "B1",
-        type: "baustelle",
-        severity: "moderate",
-        title: "Einengung Zeppelinstraße",
-        location: "Breite Straße bis Schopenhauerstraße",
-        description: "Sperrung einer Fahrspur wegen dringender Leitungsarbeiten. Zähflüssiger Berufsverkehr.",
-        fullText: "Mobil Potsdam: In der Zeppelinstraße stehen wegen dringender Reparaturarbeiten an den Versorgungsleitungen nur verengte Fahrspuren zur Verfügung. Im morgendlichen und abendlichen Berufsverkehr kommt es zu Rückstau.",
-        url: "https://www.mobil-potsdam.de/de/verkehrsmeldungen/verkehrslage/",
-        delayMinutes: 8
-      },
-      {
-        id: "tr-pt-2",
-        road: "L74",
-        type: "stau",
-        severity: "minor",
-        title: "Berufsverkehr Nuthestraße",
-        location: "Auffahrt Horstweg Richtung Zentrum",
-        description: "Erhöhtes Verkehrsaufkommen im Kreuzungsbereich.",
-        fullText: "Mobil Potsdam: Zähflüssiger Verkehr auf der L74 Nuthestraße im Einfädelungsbereich Horstweg. Die Verzögerung beträgt aktuell etwa 4 Minuten.",
-        url: "https://www.mobil-potsdam.de/de/verkehrsmeldungen/verkehrslage/",
-        delayMinutes: 4
-      },
-      {
-        id: "tr-pt-3",
-        road: "Großbeerenstraße",
-        type: "baustelle",
-        severity: "moderate",
-        title: "Fahrbahnsanierung & Teilsperrung",
-        location: "Horstweg → Lutherplatz",
-        description: "Halbseitige Sperrung mit Baustellenampel. Verzögerungen zu Stoßzeiten.",
-        fullText: "Landeshauptstadt Potsdam: Deckensanierung der Fahrbahn im Kreuzungsbereich. Verkehrsregelung über mobile Lichtsignalanlage.",
-        url: "https://mobilitaet.potsdam.de",
-        delayMinutes: 10
-      }
-    ]
-  },
-  rostock: {
-    city: "Rostock & Warnemünde",
-    zip: "Ostseeküste & Hafen",
-    overallStatus: "heavy",
-    congestionIndex: 48,
-    dataSource: "VMZ Rostock & Warnowquerung GmbH",
-    alerts: [
-      {
-        id: "tr-ro-1",
-        road: "B103",
-        type: "stau",
-        severity: "moderate",
-        title: "Stau Am Strande / Warnowufer",
-        location: "Stadthafen Richtung Gehlsdorf",
-        description: "Verkehrsüberlastung zu Stoßzeiten. Zeitverlust ca. 14 Minuten.",
-        fullText: "Verkehrsmanagement Rostock: Hohe Auslastung der B103 im Bereich Stadthafen. Zähflüssiger Verkehr in Richtung Warnowufer.",
-        url: "https://www.rostock.de/baustellen",
-        delayMinutes: 14
-      },
-      {
-        id: "tr-ro-2",
-        road: "Warnowtunnel",
-        type: "baustelle",
-        severity: "minor",
-        title: "Wartungsarbeiten an Mautstation",
-        location: "Warnowquerung, Richtung Krummendorf",
-        description: "Wartung der elektronischen Mautschranke in Spur 3. Weichen Sie auf Nebenspuren aus.",
-        fullText: "Warnowquerung GmbH: Routinearbeiten an der automatischen Schrankenanlage Spur 3. Bitte nutzen Sie die Spuren 1, 2 und 4.",
-        url: "https://www.warnowquerung.de",
-        delayMinutes: 5
-      },
-      {
-        id: "tr-ro-3",
-        road: "A19",
-        type: "stau",
-        severity: "minor",
-        title: "Überseehafen Zubringer zähfließend",
-        location: "AS Rostock-Überseehafen Richtung A20",
-        description: "Lkw-Rückstau bei der Fährabfertigung.",
-        fullText: "Polizeipräsidium Rostock: Erhöhtes Lkw-Aufkommen im Vorfeld der Fährabfahrten nach Skandinavien führt zu kurzen Verzögerungen auf der A19.",
-        url: "https://www.rostock-port.de",
-        delayMinutes: 7
-      }
-    ]
+  }> = [];
+  const stats = { warnings: 0, roadworks: 0, closures: 0 };
+
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const { roadId, service, items } = result.value;
+
+    for (const item of items) {
+      const isBlocked = item.isBlocked === "true";
+      const type = service === "warning" ? "stau" : service === "roadworks" ? "baustelle" : "sperrung";
+      const severity: "critical" | "moderate" | "minor" =
+        service === "closure" || isBlocked ? "critical" : service === "warning" ? "moderate" : "minor";
+
+      if (service === "warning") stats.warnings++;
+      else if (service === "roadworks") stats.roadworks++;
+      else stats.closures++;
+
+      const description = Array.isArray(item.description) ? item.description.join(" ") : "";
+      const lat = item.coordinate?.lat ? Number(item.coordinate.lat) : null;
+      const long = item.coordinate?.long ? Number(item.coordinate.long) : null;
+      const mapsQuery = lat && long ? `${lat},${long}` : `${roadId} Autobahn`;
+
+      alerts.push({
+        id: item.identifier || `${roadId}-${service}-${alerts.length}`,
+        road: roadId,
+        type,
+        severity,
+        title: item.title || item.subtitle || `Meldung auf der ${roadId}`,
+        location: item.subtitle || roadId,
+        description,
+        fullText: description || item.title || "",
+        url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}&layer=t`
+      });
+    }
   }
-};
 
-get("/api/traffic", (req, res) => {
-  const rawRegion = ((req.query.region as string) || "brandenburg").toLowerCase().trim();
-  const regionKey = TRAFFIC_DATA_REGIONS[rawRegion] ? rawRegion : "brandenburg";
-  const baseData = TRAFFIC_DATA_REGIONS[regionKey];
+  alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
-  const now = new Date();
-  const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} Uhr`;
+  const overallStatus: "normal" | "heavy" | "critical" =
+    stats.closures > 0 ? "critical" : stats.warnings + stats.roadworks > 0 ? "heavy" : "normal";
 
-  res.json({
-    ...baseData,
+  const timeStr = new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Berlin"
+  }).format(new Date()) + " Uhr";
+
+  const payload = {
+    city: region.label,
+    roads: region.roads,
+    overallStatus,
+    stats,
+    alerts: alerts.slice(0, 20),
+    dataSource: "Autobahn GmbH des Bundes (verkehr.autobahn.de)",
     lastSync: timeStr,
     isRealApi: true
-  });
+  };
+
+  trafficRegionCache.set(regionKey, { data: payload, timestamp: Date.now() });
+  res.json(payload);
 });
 
 // ----------------------------------------------------
