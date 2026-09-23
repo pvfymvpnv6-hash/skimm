@@ -81,10 +81,17 @@ export default function TrafficWidget() {
   const [countdown, setCountdown] = useState<number>(600); // 10 minutes auto-sync interval
   const [isLivePulse, setIsLivePulse] = useState<boolean>(false);
 
+  // Meldungsübersicht-Chips dienen gleichzeitig als Typ-Filter für die Liste
+  const [typeFilter, setTypeFilter] = useState<TrafficAlert["type"] | null>(null);
+  const toggleTypeFilter = (type: TrafficAlert["type"]) => {
+    setTypeFilter((prev) => (prev === type ? null : type));
+  };
+
   // Switch region handler
   const handleSelectRegion = (regionKey: string) => {
     if (regionKey === selectedRegion) return;
     setSelectedRegion(regionKey);
+    setTypeFilter(null);
     localStorage.setItem("traffic_selected_region", regionKey);
     fetchTraffic(regionKey, false);
   };
@@ -177,6 +184,7 @@ export default function TrafficWidget() {
   };
 
   const currentStatus = getStatusColor(region.overallStatus);
+  const filteredAlerts = typeFilter ? region.alerts.filter((a) => a.type === typeFilter) : region.alerts;
 
   const getAlertIcon = (type: TrafficAlert["type"]) => {
     switch (type) {
@@ -278,25 +286,60 @@ export default function TrafficWidget() {
 
           {/* Meldungsübersicht: echte Zähler statt erfundenem Auslastungs-Prozentwert */}
           <div className="bg-slate-950/40 p-3 rounded-xl border border-slate-800/60 flex flex-col gap-2">
-            <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
-              Meldungsübersicht
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
+                Meldungsübersicht
+              </span>
+              {typeFilter && (
+                <button
+                  type="button"
+                  onClick={() => setTypeFilter(null)}
+                  className="text-[9px] text-indigo-400 hover:text-indigo-300 font-mono cursor-pointer"
+                >
+                  Filter zurücksetzen
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-1.5">
-              <div className="flex flex-col items-center gap-1 bg-slate-900/60 border border-amber-500/20 rounded-lg py-1.5">
+              <button
+                type="button"
+                onClick={() => toggleTypeFilter("stau")}
+                disabled={region.stats.warnings === 0}
+                className={`flex flex-col items-center gap-1 bg-slate-900/60 border rounded-lg py-1.5 transition-all cursor-pointer disabled:cursor-default disabled:opacity-40 ${
+                  typeFilter === "stau" ? "border-amber-400 ring-1 ring-amber-400/50" : "border-amber-500/20 hover:border-amber-400/50"
+                }`}
+                title="Nach Stauwarnungen filtern"
+              >
                 <Clock className="w-3.5 h-3.5 text-amber-400" />
                 <span className="text-sm font-bold text-amber-400 leading-none">{region.stats.warnings}</span>
                 <span className="text-[9px] text-slate-500 font-mono">Stau</span>
-              </div>
-              <div className="flex flex-col items-center gap-1 bg-slate-900/60 border border-amber-500/20 rounded-lg py-1.5">
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleTypeFilter("baustelle")}
+                disabled={region.stats.roadworks === 0}
+                className={`flex flex-col items-center gap-1 bg-slate-900/60 border rounded-lg py-1.5 transition-all cursor-pointer disabled:cursor-default disabled:opacity-40 ${
+                  typeFilter === "baustelle" ? "border-amber-400 ring-1 ring-amber-400/50" : "border-amber-500/20 hover:border-amber-400/50"
+                }`}
+                title="Nach Baustellen filtern"
+              >
                 <Construction className="w-3.5 h-3.5 text-amber-400" />
                 <span className="text-sm font-bold text-amber-400 leading-none">{region.stats.roadworks}</span>
                 <span className="text-[9px] text-slate-500 font-mono">Baustellen</span>
-              </div>
-              <div className="flex flex-col items-center gap-1 bg-slate-900/60 border border-rose-500/20 rounded-lg py-1.5">
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleTypeFilter("sperrung")}
+                disabled={region.stats.closures === 0}
+                className={`flex flex-col items-center gap-1 bg-slate-900/60 border rounded-lg py-1.5 transition-all cursor-pointer disabled:cursor-default disabled:opacity-40 ${
+                  typeFilter === "sperrung" ? "border-rose-400 ring-1 ring-rose-400/50" : "border-rose-500/20 hover:border-rose-400/50"
+                }`}
+                title="Nach Sperrungen filtern"
+              >
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
                 <span className="text-sm font-bold text-rose-400 leading-none">{region.stats.closures}</span>
                 <span className="text-[9px] text-slate-500 font-mono">Sperrungen</span>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -337,13 +380,13 @@ export default function TrafficWidget() {
         <div className="lg:col-span-7 flex flex-col gap-1.5 min-w-0">
           <div className="flex items-center justify-between px-1">
             <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">
-              Meldungen ({region.alerts.length})
+              Meldungen ({filteredAlerts.length}{typeFilter ? ` / ${region.alerts.length}` : ""})
             </span>
             <span className="text-[10px] font-mono text-slate-500">
               Klick für Details
             </span>
           </div>
-          
+
           <div className="max-h-[160px] sm:max-h-[175px] overflow-y-auto space-y-1.5 pr-1 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-slate-950/50">
             <AnimatePresence mode="popLayout">
               {region.alerts.length === 0 && hasError ? (
@@ -366,8 +409,20 @@ export default function TrafficWidget() {
                   <span className="text-xs font-semibold text-slate-200">Freier Verkehrsfluss</span>
                   <span className="text-[11px] text-slate-400 max-w-xs">Keine akuten Stau- oder Baustellenmeldungen auf den Autobahnen der Region.</span>
                 </motion.div>
+              ) : filteredAlerts.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-6 gap-1.5 text-slate-400 bg-slate-950/30 border border-slate-800/60 rounded-xl px-4 text-center"
+                >
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  <span className="text-xs font-semibold text-slate-200">Keine Treffer für diesen Filter</span>
+                  <button type="button" onClick={() => setTypeFilter(null)} className="text-[11px] text-indigo-400 hover:text-indigo-300 font-mono cursor-pointer">
+                    Filter zurücksetzen
+                  </button>
+                </motion.div>
               ) : (
-                region.alerts.map((alert, index) => (
+                filteredAlerts.map((alert, index) => (
                   <motion.div
                     key={alert.id}
                     initial={{ opacity: 0, y: 6 }}
