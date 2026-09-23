@@ -1180,7 +1180,7 @@ get("/api/traffic", async (req, res) => {
     roads: region.roads,
     overallStatus,
     stats,
-    alerts: alerts.slice(0, 20),
+    alerts,
     dataSource: "Autobahn GmbH des Bundes (verkehr.autobahn.de)",
     lastSync: timeStr,
     isRealApi: true
