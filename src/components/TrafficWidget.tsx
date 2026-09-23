@@ -422,13 +422,9 @@ export default function TrafficWidget() {
                   </button>
                 </motion.div>
               ) : (
-                filteredAlerts.map((alert, index) => (
-                  <motion.div
+                filteredAlerts.map((alert) => (
+                  <div
                     key={alert.id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ delay: index * 0.04, duration: 0.2 }}
                     id={`traffic-alert-${alert.id}`}
                     onClick={() => setSelectedAlert(alert)}
                     className="group relative flex items-center justify-between gap-3 w-full px-3 py-2 bg-slate-950/40 hover:bg-slate-950/80 border border-slate-850 hover:border-indigo-500/40 rounded-xl transition-all cursor-pointer shadow-sm"
@@ -503,7 +499,7 @@ export default function TrafficWidget() {
 
                       <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-indigo-400 transition-colors" />
                     </div>
-                  </motion.div>
+                  </div>
                 ))
               )}
             </AnimatePresence>
