@@ -861,7 +861,7 @@ export default function StockTicker({ className = "" }: { className?: string }) 
             <button
               type="button"
               onClick={handleGoogleSignOut}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 cursor-pointer transition-colors text-[10px] font-mono font-medium"
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 cursor-pointer transition-colors text-[10px] font-mono font-medium"
               title={`Als ${user.email || "Google-Konto"} synchronisiert - klicken zum Abmelden`}
             >
               <Cloud className={`w-3.5 h-3.5 ${isCloudSyncing ? "animate-pulse" : ""}`} />
