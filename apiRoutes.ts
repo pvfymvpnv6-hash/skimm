@@ -1151,7 +1151,12 @@ get("/api/traffic", async (req, res) => {
       const mapsQuery = lat && long ? `${lat},${long}` : `${roadId} Autobahn`;
 
       alerts.push({
-        id: item.identifier || `${roadId}-${service}-${alerts.length}`,
+        // Always prefix with roadId+service so IDs stay unique even if the
+        // Autobahn API reuses an identifier across different event types
+        // (e.g. a warning and a closure for the same incident) - a
+        // collision here made React reuse/misrender rows across filter
+        // clicks, showing the wrong alert type after toggling.
+        id: `${roadId}-${service}-${item.identifier || alerts.length}`,
         road: roadId,
         type,
         severity,
