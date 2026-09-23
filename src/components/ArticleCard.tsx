@@ -5,7 +5,7 @@ import { enrichArticle } from "../utils/articleEnricher";
 import { isLegitimateLocalArticle } from "../utils/localNewsClassifier";
 
 export type BentoVariant = "hero" | "standard" | "wide";
-export type ReadingDepth = "skimm" | "standard" | "deep";
+export type ReadingDepth = "skimm" | "deep";
 
 interface ArticleCardProps {
   key?: string;
@@ -71,7 +71,7 @@ export default function ArticleCard({
   onToggleSave,
   onDismiss,
   variant = "standard",
-  readingDepth = "standard",
+  readingDepth = "deep",
   className = "",
 }: ArticleCardProps) {
   const article = enrichArticle(rawArticle);
@@ -273,7 +273,7 @@ export default function ArticleCard({
                 ))}
               </ul>
             ) : (
-              <p className={`text-slate-400 text-sm font-sans ${readingDepth === "deep" ? "line-clamp-4 leading-relaxed" : "line-clamp-2"}`}>
+              <p className="text-slate-400 text-sm font-sans line-clamp-4 leading-relaxed">
                 {article.teaser}
               </p>
             )}
@@ -362,7 +362,7 @@ export default function ArticleCard({
                 ))}
               </ul>
             ) : (
-              <p className={`text-slate-400 text-xs font-sans leading-relaxed ${readingDepth === "deep" ? "line-clamp-4" : "line-clamp-2"}`}>
+              <p className="text-slate-400 text-xs font-sans leading-relaxed line-clamp-4">
                 {article.teaser}
               </p>
             )}
@@ -460,7 +460,7 @@ export default function ArticleCard({
             ))}
           </ul>
         ) : (
-          <p className={`text-slate-400 text-xs font-sans leading-relaxed ${readingDepth === "deep" ? "line-clamp-4" : "line-clamp-2"}`}>
+          <p className="text-slate-400 text-xs font-sans leading-relaxed line-clamp-4">
             {article.teaser}
           </p>
         )}

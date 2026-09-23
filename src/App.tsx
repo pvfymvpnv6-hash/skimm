@@ -146,7 +146,7 @@ export default function App() {
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(true);
   const [autoRefreshCountdown, setAutoRefreshCountdown] = useState<number>(600); // 10 minutes interval
   const [visibleArticleLimit, setVisibleArticleLimit] = useState<number>(24); // Initial batch size (24 articles)
-  const [readingDepth, setReadingDepth] = useState<"skimm" | "standard" | "deep">("standard");
+  const [readingDepth, setReadingDepth] = useState<"skimm" | "deep">("deep");
 
   // --- Live Push Notification States ---
   const [pushEnabled, setPushEnabled] = useState<boolean>(() => {
@@ -1228,7 +1228,7 @@ function isSportArticleClient(art: Article): boolean {
             </AnimatePresence>
           </div>
 
-          {/* Lesetiefe Global Slider (Skimm | Standard | Deep Dive) */}
+          {/* Lesetiefe Global Slider (Skimm | Deep Dive) */}
           <div className="hidden md:flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl text-[10px] font-mono font-medium">
             <span className="text-slate-500 px-1.5 flex items-center gap-1 font-semibold uppercase tracking-wider text-[9px]">
               <Sparkles className="w-3 h-3 text-indigo-400" />
@@ -1245,18 +1245,6 @@ function isSportArticleClient(art: Article): boolean {
               title="Skimm: Nur Fakten & 3-Bullet Points"
             >
               ⚡ Skimm
-            </button>
-            <button
-              id="lesetiefe-standard-btn"
-              onClick={() => setReadingDepth("standard")}
-              className={`px-2.5 py-1 rounded-lg transition-all font-bold cursor-pointer ${
-                readingDepth === "standard"
-                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/30"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-              }`}
-              title="Standard: Ausgewogene Vorschau & Teaser"
-            >
-              📖 Standard
             </button>
             <button
               id="lesetiefe-deep-btn"
@@ -1285,11 +1273,6 @@ function isSportArticleClient(art: Article): boolean {
               </span>
             )}
           </button>
-
-          {/* Dark Mode Indicator (Disabled toggle visual style for theme enforcement) */}
-          <div className="w-8 h-8 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xs" title="Bento Dark Mode Active">
-            B
-          </div>
         </div>
       </nav>
 
