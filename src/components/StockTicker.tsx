@@ -1,14 +1,24 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { 
-  TrendingUp, RefreshCw, ChevronDown, 
-  Search, X, Check, BarChart3, ArrowUpRight, 
+import {
+  TrendingUp, RefreshCw, ChevronDown,
+  Search, X, Check, BarChart3, ArrowUpRight,
   ArrowDownRight, Star, Loader2, Globe, Bell,
-  BellRing, Trash2, Plus, AlertCircle, Volume2
+  BellRing, Trash2, Plus, AlertCircle, Volume2,
+  Cloud, LogOut
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { StockInfo, StockPriceAlert } from "../types";
 import { stripEmojis } from "../utils/textUtils";
+import type { User } from "firebase/auth";
+import {
+  loginWithGoogle,
+  logout,
+  subscribeToAuth,
+  subscribeToMarketFavorites,
+  syncMarketFavoritesToCloud,
+  migrateLocalMarketFavoritesIfEmpty
+} from "../lib/firebase";
 
 export interface StockCatalogItem {
   symbol: string;
@@ -169,6 +179,64 @@ export default function StockTicker({ className = "" }: { className?: string }) 
   // Highlighting effects to flash green/red when price changes
   const [flashStates, setFlashStates] = useState<Record<string, "up" | "down" | null>>({});
   const prevPricesRef = useRef<Record<string, number>>({});
+
+  // Optional Google account sync for the 5 market favorites (device-local by
+  // default via localStorage above; logging in mirrors them to Firestore so
+  // they follow the user across devices/browsers).
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+
+  useEffect(() => {
+    const unsubscribeAuth = subscribeToAuth((currentUser) => {
+      setUser(currentUser);
+      setIsAuthLoading(false);
+
+      if (currentUser) {
+        // One-time seed: if this is the first login and the cloud has no
+        // favorites yet, push up whatever is currently saved locally.
+        let localFavs: string[] = DEFAULT_5_FAVORITES;
+        try {
+          const saved = localStorage.getItem("news_market_favorites_v5");
+          const parsed = saved ? JSON.parse(saved) : null;
+          if (Array.isArray(parsed) && parsed.length === 5) localFavs = parsed;
+        } catch (e) {}
+        migrateLocalMarketFavoritesIfEmpty(currentUser.uid, localFavs, currentUser.email, currentUser.displayName);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  // Live-subscribe to cloud favorites once signed in, so changes on another
+  // device show up here too.
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribeFavs = subscribeToMarketFavorites(user.uid, (cloudFavorites) => {
+      if (cloudFavorites.length === 5) {
+        setFavorites(cloudFavorites);
+      }
+    });
+    return () => unsubscribeFavs();
+  }, [user]);
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsAuthLoading(true);
+      await loginWithGoogle();
+    } catch (err) {
+      console.error("Google login error:", err);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      console.error("Google logout error:", err);
+    }
+  };
 
   // Sync favorites & alerts to localStorage
   useEffect(() => {
@@ -438,11 +506,18 @@ export default function StockTicker({ className = "" }: { className?: string }) 
     const cleanSym = newSymbol.trim().toUpperCase();
     const updated = [...favorites];
     updated[slotIndex] = cleanSym;
-    
+
     setFavorites(updated);
     try {
       localStorage.setItem("news_market_favorites_v5", JSON.stringify(updated));
     } catch (e) {}
+
+    if (user) {
+      setIsCloudSyncing(true);
+      syncMarketFavoritesToCloud(user.uid, updated, user.email, user.displayName).finally(() => {
+        setIsCloudSyncing(false);
+      });
+    }
 
     setActiveDropdownIndex(null);
   };
@@ -453,6 +528,14 @@ export default function StockTicker({ className = "" }: { className?: string }) 
     try {
       localStorage.setItem("news_market_favorites_v5", JSON.stringify(DEFAULT_5_FAVORITES));
     } catch (e) {}
+
+    if (user) {
+      setIsCloudSyncing(true);
+      syncMarketFavoritesToCloud(user.uid, DEFAULT_5_FAVORITES, user.email, user.displayName).finally(() => {
+        setIsCloudSyncing(false);
+      });
+    }
+
     setActiveDropdownIndex(null);
   };
 
@@ -774,6 +857,29 @@ export default function StockTicker({ className = "" }: { className?: string }) 
         </div>
         
         <div className="flex items-center gap-1.5">
+          {user ? (
+            <button
+              type="button"
+              onClick={handleGoogleSignOut}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 cursor-pointer transition-colors text-[10px] font-mono font-medium group"
+              title={`Als ${user.email || "Google-Konto"} synchronisiert - klicken zum Abmelden`}
+            >
+              <Cloud className={`w-3.5 h-3.5 ${isCloudSyncing ? "animate-pulse" : ""}`} />
+              <span className="hidden sm:inline group-hover:hidden">Synchronisiert</span>
+              <LogOut className="w-3 h-3 hidden group-hover:inline" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={isAuthLoading}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer transition-colors text-[10px] font-mono font-medium disabled:opacity-50"
+              title="Favoriten mit Google-Konto geräteübergreifend synchronisieren"
+            >
+              <Cloud className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{isAuthLoading ? "..." : "Google Sync"}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => fetchStocksData()}
