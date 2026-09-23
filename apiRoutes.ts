@@ -1151,7 +1151,12 @@ get("/api/traffic", async (req, res) => {
       const mapsQuery = lat && long ? `${lat},${long}` : `${roadId} Autobahn`;
 
       alerts.push({
-        id: item.identifier || `${roadId}-${service}-${alerts.length}`,
+        // Always prefix with roadId+service so IDs stay unique even if the
+        // Autobahn API reuses an identifier across different event types
+        // (e.g. a warning and a closure for the same incident) - a
+        // collision here made React reuse/misrender rows across filter
+        // clicks, showing the wrong alert type after toggling.
+        id: `${roadId}-${service}-${item.identifier || alerts.length}`,
         road: roadId,
         type,
         severity,
@@ -1164,7 +1169,14 @@ get("/api/traffic", async (req, res) => {
     }
   }
 
-  alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  // Primär nach Typ in Chip-Reihenfolge (Stau, Baustelle, Sperrung) sortieren,
+  // nicht nach Schwere: Sperrungen sind immer "critical" und würden sonst nach
+  // dem Deaktivieren eines Filters die Liste dominieren - wirkt dann wie ein
+  // ungewollter Sprung zu den Sperrungsmeldungen statt einer neutralen Ansicht.
+  const typeOrder: Record<"stau" | "baustelle" | "sperrung", number> = { stau: 0, baustelle: 1, sperrung: 2 };
+  alerts.sort(
+    (a, b) => typeOrder[a.type] - typeOrder[b.type] || severityOrder[a.severity] - severityOrder[b.severity]
+  );
 
   const overallStatus: "normal" | "heavy" | "critical" =
     stats.closures > 0 ? "critical" : stats.warnings + stats.roadworks > 0 ? "heavy" : "normal";
