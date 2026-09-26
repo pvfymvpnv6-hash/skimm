@@ -776,6 +776,8 @@ get("/api/news", async (req, res) => {
           const teaser = decodeAndCleanEntities(rawTeaser).replace(/<[^>]*>/g, "").slice(0, 320).trim();
           const link = item.link || "https://" + feedConfig.id + ".de";
           const pubDate = item.pubDate || item.isoDate || new Date().toISOString();
+          const parsedPubDate = new Date(pubDate);
+          const displayDate = isNaN(parsedPubDate.getTime()) ? new Date() : parsedPubDate;
           const category = classifyArticleCategory(title, teaser, link, feedConfig.defaultCat);
           const imageUrl = extractImage(item);
           const words = (title + " " + teaser).split(/\s+/).length;
@@ -805,7 +807,7 @@ get("/api/news", async (req, res) => {
             sourceName: feedConfig.name,
             url: link,
             imageUrl: imageUrl || "",
-            publishedAt: new Date(pubDate).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
+            publishedAt: displayDate.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
             readingTime: `${readMins} Min. Lesezeit`,
             isBreaking,
             isLocal,
