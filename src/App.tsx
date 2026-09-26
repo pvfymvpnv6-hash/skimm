@@ -1909,7 +1909,13 @@ function isSportArticleClient(art: Article): boolean {
                     setSearchQuery("");
                     setSelectedCategory("all");
                     setTopics(DEFAULT_TOPICS);
-                    setDeutscheQuellenPool(DEFAULT_SOURCES);
+                    // Standard-Quellen zurücksetzen, aber eigene Quellen behalten (nur
+                    // wieder aktivieren) - ein "Filter zurücksetzen"-Button darf keine
+                    // vom Nutzer manuell hinzugefügten Quellen komplett löschen.
+                    setDeutscheQuellenPool((prev) => [
+                      ...DEFAULT_SOURCES,
+                      ...prev.filter((s) => s.isCustom).map((s) => ({ ...s, enabled: true }))
+                    ]);
                     setDismissedStreamArticleIds([]);
                     localStorage.removeItem("news_dismissed_stream_articles");
                   }}

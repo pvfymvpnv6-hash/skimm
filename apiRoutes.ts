@@ -652,6 +652,75 @@ async function fetchAndParseRss(url: string, timeoutMs = 7000): Promise<any> {
 }
 
 // ----------------------------------------------------
+// Custom-Source RSS-Autodiscovery
+// Statt blind "https://<domain>/feed/" zu raten (nur eine WordPress-
+// Konvention, funktioniert z.B. bei bild.de nicht), wird erst die
+// Startseite nach dem Standard-<link rel="alternate" type="application/
+// rss+xml"> Tag durchsucht (das nutzen fast alle großen News-Seiten),
+// und nur falls das nichts findet, eine kleine Liste gängiger Pfade
+// parallel durchprobiert. Ergebnis wird pro Domain gecacht.
+// ----------------------------------------------------
+const customFeedUrlCache = new Map<string, { url: string | null; timestamp: number }>();
+const CUSTOM_FEED_CACHE_TTL = 6 * 60 * 60 * 1000; // 6h - Feed-URLs ändern sich selten
+const COMMON_FEED_PATHS = ["/feed/", "/rss.xml", "/feed", "/rss"];
+
+async function discoverViaAutodiscovery(domain: string): Promise<string | null> {
+  const homepageUrl = `https://${domain}/`;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(homepageUrl, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml"
+      }
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    const match =
+      html.match(/<link[^>]+rel=["']alternate["'][^>]+type=["']application\/(?:rss|atom)\+xml["'][^>]+href=["']([^"']+)["']/i) ||
+      html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']alternate["'][^>]+type=["']application\/(?:rss|atom)\+xml["']/i) ||
+      html.match(/<link[^>]+type=["']application\/(?:rss|atom)\+xml["'][^>]+href=["']([^"']+)["']/i);
+
+    if (match && match[1]) {
+      try {
+        return new URL(match[1], homepageUrl).toString();
+      } catch {
+        return null;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function discoverViaCommonPaths(domain: string): Promise<string | null> {
+  const results = await Promise.allSettled(
+    COMMON_FEED_PATHS.map(async (path) => {
+      const candidate = `https://${domain}${path}`;
+      const feed = await fetchAndParseRss(candidate, 3500);
+      if (feed && Array.isArray(feed.items) && feed.items.length > 0) return candidate;
+      throw new Error("empty feed");
+    })
+  );
+  const found = results.find((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled");
+  return found ? found.value : null;
+}
+
+async function discoverRssFeedUrl(domain: string): Promise<string | null> {
+  const cached = customFeedUrlCache.get(domain);
+  if (cached && Date.now() - cached.timestamp < CUSTOM_FEED_CACHE_TTL) {
+    return cached.url;
+  }
+
+  const discovered = (await discoverViaAutodiscovery(domain)) || (await discoverViaCommonPaths(domain));
+  customFeedUrlCache.set(domain, { url: discovered, timestamp: Date.now() });
+  return discovered;
+}
+
+// ----------------------------------------------------
 // 1. API: News List (`/api/news`)
 // ----------------------------------------------------
 get("/api/news", async (req, res) => {
@@ -672,10 +741,20 @@ get("/api/news", async (req, res) => {
 
   try {
     const activeFeeds = [...FEEDS];
-    
-    // Add custom feeds dynamically if user added them
-    for (const custom of customSources) {
-      let feedUrl = custom.domain.startsWith("http") ? custom.domain : `https://${custom.domain}/feed/`;
+
+    // Add custom feeds dynamically if user added them - resolve real feed
+    // URLs via Autodiscovery statt blind zu raten (siehe discoverRssFeedUrl)
+    const resolvedCustomFeeds = await Promise.all(
+      customSources.map(async (custom) => {
+        const feedUrl = custom.domain.startsWith("http") ? custom.domain : await discoverRssFeedUrl(custom.domain);
+        return { custom, feedUrl };
+      })
+    );
+    for (const { custom, feedUrl } of resolvedCustomFeeds) {
+      if (!feedUrl) {
+        console.warn(`[news] Could not discover RSS feed for custom source "${custom.name}" (${custom.domain})`);
+        continue;
+      }
       activeFeeds.push({
         id: custom.id,
         name: custom.name,
@@ -697,6 +776,8 @@ get("/api/news", async (req, res) => {
           const teaser = decodeAndCleanEntities(rawTeaser).replace(/<[^>]*>/g, "").slice(0, 320).trim();
           const link = item.link || "https://" + feedConfig.id + ".de";
           const pubDate = item.pubDate || item.isoDate || new Date().toISOString();
+          const parsedPubDate = new Date(pubDate);
+          const displayDate = isNaN(parsedPubDate.getTime()) ? new Date() : parsedPubDate;
           const category = classifyArticleCategory(title, teaser, link, feedConfig.defaultCat);
           const imageUrl = extractImage(item);
           const words = (title + " " + teaser).split(/\s+/).length;
@@ -726,7 +807,7 @@ get("/api/news", async (req, res) => {
             sourceName: feedConfig.name,
             url: link,
             imageUrl: imageUrl || "",
-            publishedAt: new Date(pubDate).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
+            publishedAt: displayDate.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }),
             readingTime: `${readMins} Min. Lesezeit`,
             isBreaking,
             isLocal,
